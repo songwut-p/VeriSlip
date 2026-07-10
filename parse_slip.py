@@ -172,14 +172,23 @@ def parse_account_numbers(text: str):
     """
     lines = text.split("\n")
     results = []
+    MAX_BLANK_SKIP = 2  # ทนได้สูงสุด 2 บรรทัดว่างแทรก (tesseract บางครั้งแทรกบรรทัดว่างระหว่าง label กับ value)
 
     for i, line in enumerate(lines):
         if re.fullmatch(ACCOUNT_LABEL_PATTERN, line.strip()):
-            # label เจอในบรรทัดนี้ -> ค่าควรอยู่บรรทัดถัดไป
-            if i + 1 >= len(lines):
-                results.append({"value": None, "issue": "label found but no following line"})
+            # label เจอในบรรทัดนี้ -> หาเนื้อหาจริงถัดไป โดยข้ามบรรทัดว่างที่แทรกมา
+            candidate_line = None
+            for offset in range(1, MAX_BLANK_SKIP + 2):
+                idx = i + offset
+                if idx >= len(lines):
+                    break
+                next_line = lines[idx].strip()
+                if next_line:  # เจอบรรทัดที่มีเนื้อหาแล้ว
+                    candidate_line = next_line
+                    break
+            if candidate_line is None:
+                results.append({"value": None, "issue": "label found but no non-blank following line within range"})
                 continue
-            candidate_line = lines[i + 1].strip()
             match = re.search(ACCOUNT_NUMBER_PATTERN, candidate_line)
             if match:
                 results.append({"value": normalize_account_number(match.group(0)), "issue": None})
