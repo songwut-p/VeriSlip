@@ -53,6 +53,12 @@ def run_comparison():
             label, path, "zoned (header=1.0, body=1.5, ratio=0.15)",
             preprocess_mode="zoned", header_ratio=0.15, header_contrast=1.0, body_contrast=1.5,
         )
+        print()
+        run_mode(
+            label, path, "dynamic (large=1.0, small=1.5, threshold=1.3)",
+            preprocess_mode="dynamic", size_threshold_ratio=1.3,
+            large_text_contrast=1.0, small_text_contrast=1.5,
+        )
 
 
 if __name__ == "__main__":

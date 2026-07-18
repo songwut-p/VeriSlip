@@ -80,6 +80,69 @@ def preprocess_image_zoned(
     return combined
 
 
+def preprocess_image_dynamic(
+    image: Image.Image,
+    grayscale: bool = True,
+    detection_lang: str = "tha+eng",
+    size_threshold_ratio: float = 1.3,
+    large_text_contrast: float = 1.0,
+    small_text_contrast: float = 1.5,
+) -> Image.Image:
+    """
+    Preprocessing แบบ dynamic (เพิ่มใหม่: แก้ข้อจำกัดของ zoned/fixed-zone
+    ที่พบว่าปัญหาจริงไม่ได้ผูกกับตำแหน่งตายตัว เช่น header บนสุดเท่านั้น
+    แต่กระจายอยู่ทั่วภาพ - ดู ocr_test_summary.md)
+
+    ขั้นตอน:
+    1. รัน Tesseract รอบแรก (image_to_data) บนภาพ grayscale ที่ยังไม่ปรับ contrast
+       เพื่อดึงตำแหน่ง (bounding box) และความสูงของแต่ละคำที่ตรวจเจอ
+    2. หาค่ามัธยฐาน (median) ของความสูงตัวอักษรทั้งภาพ ใช้เป็นเกณฑ์อ้างอิง
+    3. คำไหนสูงกว่ามัธยฐาน * size_threshold_ratio ถือว่าเป็นตัวใหญ่/หนา (header-like)
+       -> ใช้ contrast ต่ำ (large_text_contrast)
+       คำที่เหลือ (ตัวปกติ/บาง) -> ใช้ contrast สูงกว่า (small_text_contrast)
+    4. ปรับ contrast เฉพาะในกรอบ (bounding box) ของคำนั้นๆ แล้ววางกลับตำแหน่งเดิม
+
+    หมายเหตุ: ความแม่นยำขึ้นกับผลตรวจจับรอบแรก ถ้า Tesseract หาตำแหน่งคำผิด
+    หรือไม่เจอคำบางคำเลย โซนของคำนั้นจะไม่ถูกปรับ (ใช้ภาพ grayscale เฉยๆ)
+    """
+    if grayscale:
+        image = image.convert("L")
+
+    data = pytesseract.image_to_data(image, lang=detection_lang, output_type=pytesseract.Output.DICT)
+
+    heights = [h for h in data["height"] if h > 0]
+    if not heights:
+        # ตรวจไม่เจอคำเลย - คืนภาพ grayscale เฉยๆ ไม่ปรับอะไรเพิ่ม
+        return image
+
+    heights_sorted = sorted(heights)
+    mid = len(heights_sorted) // 2
+    if len(heights_sorted) % 2 == 0:
+        median_height = (heights_sorted[mid - 1] + heights_sorted[mid]) / 2
+    else:
+        median_height = heights_sorted[mid]
+
+    result = image.copy()
+    n_boxes = len(data["text"])
+    for i in range(n_boxes):
+        word = data["text"][i].strip()
+        if not word:
+            continue
+        x, y, w, h = data["left"][i], data["top"][i], data["width"][i], data["height"][i]
+        if w <= 0 or h <= 0:
+            continue
+
+        is_large = h > median_height * size_threshold_ratio
+        contrast = large_text_contrast if is_large else small_text_contrast
+
+        box = result.crop((x, y, x + w, y + h))
+        if contrast != 1.0:
+            box = ImageEnhance.Contrast(box).enhance(contrast)
+        result.paste(box, (x, y))
+
+    return result
+
+
 def ocr_image_to_text(
     image_path: str,
     lang: str = "tha+eng",
@@ -89,6 +152,9 @@ def ocr_image_to_text(
     header_ratio: float = 0.15,
     header_contrast: float = 1.0,
     body_contrast: float = 1.5,
+    size_threshold_ratio: float = 1.3,
+    large_text_contrast: float = 1.0,
+    small_text_contrast: float = 1.5,
 ) -> str:
     """
     เรียก Tesseract ผ่าน pytesseract เพื่ออ่านข้อความจากไฟล์ภาพ
@@ -100,7 +166,11 @@ def ocr_image_to_text(
 
     preprocess_mode เลือกวิธี preprocess เมื่อ preprocess=True:
       - "uniform" (default): grayscale + contrast ค่าเดียวทั้งภาพ (contrast_factor)
-      - "zoned": แบ่งโซน header/body ใช้ contrast คนละค่า (header_contrast, body_contrast, header_ratio)
+      - "zoned": แบ่งโซน header/body ตามตำแหน่ง % แนวตั้ง ใช้ contrast คนละค่า
+        (header_contrast, body_contrast, header_ratio)
+      - "dynamic": ตรวจจับ bounding box ของแต่ละคำจริงในภาพก่อน (ผ่าน Tesseract)
+        แล้วปรับ contrast ตามขนาดตัวอักษรที่ตรวจเจอจริง ไม่ใช่ตำแหน่งตายตัว
+        (size_threshold_ratio, large_text_contrast, small_text_contrast)
     """
     image = Image.open(image_path)
     if preprocess:
@@ -110,6 +180,14 @@ def ocr_image_to_text(
                 header_ratio=header_ratio,
                 header_contrast=header_contrast,
                 body_contrast=body_contrast,
+            )
+        elif preprocess_mode == "dynamic":
+            image = preprocess_image_dynamic(
+                image,
+                detection_lang=lang,
+                size_threshold_ratio=size_threshold_ratio,
+                large_text_contrast=large_text_contrast,
+                small_text_contrast=small_text_contrast,
             )
         else:
             image = preprocess_image(image, contrast_factor=contrast_factor)
