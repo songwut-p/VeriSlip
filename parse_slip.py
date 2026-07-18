@@ -15,16 +15,46 @@ parse_slip.py
 import re
 import sys
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 
-def ocr_image_to_text(image_path: str, lang: str = "tha+eng") -> str:
+# ============================================================
+# Image preprocessing (เพิ่มใหม่: grayscale + contrast enhancement)
+# ============================================================
+
+def preprocess_image(image: Image.Image, grayscale: bool = True, contrast_factor: float = 1.5) -> Image.Image:
+    """
+    Preprocessing แบบ uniform: grayscale + contrast enhancement
+    ค่า default 1.5 มาจากการทดลองใน test_ocr.py
+
+    หมายเหตุ: วิธีนี้เป็นแบบ "ทั้งภาพใช้ค่าเดียว" ซึ่งจากที่เคยเจอมาก่อน
+    อาจช่วยตัวอักษรปกติแต่ทำร้าย bold header ได้ - ต้องประเมินผลจริงในขั้นถัดไป
+    """
+    if grayscale:
+        image = image.convert("L")
+    if contrast_factor != 1.0:
+        enhancer = ImageEnhance.Contrast(image)
+        image = enhancer.enhance(contrast_factor)
+    return image
+
+
+def ocr_image_to_text(
+    image_path: str,
+    lang: str = "tha+eng",
+    preprocess: bool = True,
+    contrast_factor: float = 1.5,
+) -> str:
     """
     เรียก Tesseract ผ่าน pytesseract เพื่ออ่านข้อความจากไฟล์ภาพ
     lang default เป็น 'tha+eng' ตามข้อสรุปจากผลการทดสอบ OCR ก่อนหน้า
     (ดู ocr_test_summary.md - tha+eng ให้ผลดีที่สุดสำหรับเอกสารที่มีอักษรผสม/ละติน)
+
+    preprocess=True (default) จะทำ grayscale + contrast ก่อนส่งเข้า OCR
+    ตั้ง preprocess=False เพื่อเทียบผลกับภาพดิบ (สำหรับ debugging/comparison)
     """
     image = Image.open(image_path)
+    if preprocess:
+        image = preprocess_image(image, contrast_factor=contrast_factor)
     return pytesseract.image_to_string(image, lang=lang)
 
 
