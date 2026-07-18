@@ -38,23 +38,81 @@ def preprocess_image(image: Image.Image, grayscale: bool = True, contrast_factor
     return image
 
 
+def preprocess_image_zoned(
+    image: Image.Image,
+    grayscale: bool = True,
+    header_ratio: float = 0.15,
+    header_contrast: float = 1.0,
+    body_contrast: float = 1.5,
+) -> Image.Image:
+    """
+    Preprocessing แบบแบ่งโซน (เพิ่มใหม่: ตอบสนองปัญหาที่พบจาก contrast sweep test
+    เมื่อ 2026-07-18 - ดู ocr_test_summary.md)
+
+    แบ่งภาพเป็น 2 โซนตามสัดส่วนแนวตั้ง:
+      - โซนบน (header_ratio แรกของความสูงภาพ): มักเป็นชื่อธนาคาร/หัวข้อตัวหนา-ใหญ่
+        ใช้ contrast ต่ำ (default 1.0 = ไม่ปรับ) กันเส้นตัวหนาเบลอติดกัน
+      - โซนล่าง (ที่เหลือ): เนื้อหา label-value ทั่วไป ใช้ contrast สูงกว่า (default 1.5)
+        ช่วยให้ตัวบางอ่านง่ายขึ้น (เช่น เดือนไทยย่อ ก.ค.)
+
+    หมายเหตุสำคัญ: จากผลทดสอบก่อนหน้า ปัญหา label ภาษาอังกฤษคำสั้น ("From"/"To")
+    หายไปตอน contrast สูง ไม่ได้เกิดเฉพาะโซน header เท่านั้น แต่เกิดในโซนเนื้อหาด้วย
+    ดังนั้นวิธีนี้อาจจะยังไม่แก้ปัญหานั้นได้ 100% - ต้องทดสอบเทียบผลจริงอีกที
+    """
+    if grayscale:
+        image = image.convert("L")
+
+    width, height = image.size
+    split_y = int(height * header_ratio)
+
+    header_zone = image.crop((0, 0, width, split_y))
+    body_zone = image.crop((0, split_y, width, height))
+
+    if header_contrast != 1.0:
+        header_zone = ImageEnhance.Contrast(header_zone).enhance(header_contrast)
+    if body_contrast != 1.0:
+        body_zone = ImageEnhance.Contrast(body_zone).enhance(body_contrast)
+
+    # ประกอบภาพกลับเป็นภาพเดียว
+    combined = Image.new(image.mode, (width, height))
+    combined.paste(header_zone, (0, 0))
+    combined.paste(body_zone, (0, split_y))
+    return combined
+
+
 def ocr_image_to_text(
     image_path: str,
     lang: str = "tha+eng",
     preprocess: bool = True,
     contrast_factor: float = 1.5,
+    preprocess_mode: str = "uniform",
+    header_ratio: float = 0.15,
+    header_contrast: float = 1.0,
+    body_contrast: float = 1.5,
 ) -> str:
     """
     เรียก Tesseract ผ่าน pytesseract เพื่ออ่านข้อความจากไฟล์ภาพ
     lang default เป็น 'tha+eng' ตามข้อสรุปจากผลการทดสอบ OCR ก่อนหน้า
     (ดู ocr_test_summary.md - tha+eng ให้ผลดีที่สุดสำหรับเอกสารที่มีอักษรผสม/ละติน)
 
-    preprocess=True (default) จะทำ grayscale + contrast ก่อนส่งเข้า OCR
+    preprocess=True (default) จะ preprocess ภาพก่อนส่งเข้า OCR
     ตั้ง preprocess=False เพื่อเทียบผลกับภาพดิบ (สำหรับ debugging/comparison)
+
+    preprocess_mode เลือกวิธี preprocess เมื่อ preprocess=True:
+      - "uniform" (default): grayscale + contrast ค่าเดียวทั้งภาพ (contrast_factor)
+      - "zoned": แบ่งโซน header/body ใช้ contrast คนละค่า (header_contrast, body_contrast, header_ratio)
     """
     image = Image.open(image_path)
     if preprocess:
-        image = preprocess_image(image, contrast_factor=contrast_factor)
+        if preprocess_mode == "zoned":
+            image = preprocess_image_zoned(
+                image,
+                header_ratio=header_ratio,
+                header_contrast=header_contrast,
+                body_contrast=body_contrast,
+            )
+        else:
+            image = preprocess_image(image, contrast_factor=contrast_factor)
     return pytesseract.image_to_string(image, lang=lang)
 
 
