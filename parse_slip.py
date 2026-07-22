@@ -148,7 +148,7 @@ def ocr_image_to_text(
     lang: str = "tha+eng",
     preprocess: bool = True,
     contrast_factor: float = 1.5,
-    preprocess_mode: str = "uniform",
+    preprocess_mode: str = "dynamic",
     header_ratio: float = 0.15,
     header_contrast: float = 1.0,
     body_contrast: float = 1.5,
@@ -164,13 +164,14 @@ def ocr_image_to_text(
     preprocess=True (default) จะ preprocess ภาพก่อนส่งเข้า OCR
     ตั้ง preprocess=False เพื่อเทียบผลกับภาพดิบ (สำหรับ debugging/comparison)
 
-    preprocess_mode เลือกวิธี preprocess เมื่อ preprocess=True:
-      - "uniform" (default): grayscale + contrast ค่าเดียวทั้งภาพ (contrast_factor)
-      - "zoned": แบ่งโซน header/body ตามตำแหน่ง % แนวตั้ง ใช้ contrast คนละค่า
-        (header_contrast, body_contrast, header_ratio)
-      - "dynamic": ตรวจจับ bounding box ของแต่ละคำจริงในภาพก่อน (ผ่าน Tesseract)
+    preprocess_mode เลือกวิธี preprocess เมื่อ preprocess=True (default เป็น "dynamic"
+    ตามผลทดสอบใน ocr_test_summary.md - แก้ปัญหา bold-vs-thin ได้ดีที่สุดโดยไม่มี trade-off):
+      - "dynamic" (default): ตรวจจับ bounding box ของแต่ละคำจริงในภาพก่อน (ผ่าน Tesseract)
         แล้วปรับ contrast ตามขนาดตัวอักษรที่ตรวจเจอจริง ไม่ใช่ตำแหน่งตายตัว
         (size_threshold_ratio, large_text_contrast, small_text_contrast)
+      - "uniform": grayscale + contrast ค่าเดียวทั้งภาพ (contrast_factor)
+      - "zoned": แบ่งโซน header/body ตามตำแหน่ง % แนวตั้ง ใช้ contrast คนละค่า
+        (header_contrast, body_contrast, header_ratio)
     """
     image = Image.open(image_path)
     if preprocess:
