@@ -23,3 +23,4 @@ for filename in files:
     text = pytesseract.image_to_string(image, lang="tha+eng")
     print(text)
     print("=" * 40)
+    
