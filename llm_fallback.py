@@ -86,6 +86,20 @@ def _extract_json(raw_response: str) -> dict:
     except json.JSONDecodeError:
         return {}
 
+def _coerce_amount(value) -> float | None:
+    """
+    แปลงค่า amount ที่ LLM คืนมา (มักเป็น string เช่น "1200.00" หรือ "1,200.00")
+    ให้เป็น float เสมอ คืน None ถ้าแปลงไม่ได้ (กัน pipeline พังเพราะ LLM ตอบแปลกๆ)
+    """
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        cleaned = value.replace(",", "").strip()
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None
+    return None
 
 def llm_extract_fields(ocr_text: str, missing_fields: list, model: str = MODEL_NAME) -> dict:
     """
@@ -125,6 +139,8 @@ def llm_extract_fields(ocr_text: str, missing_fields: list, model: str = MODEL_N
         value = parsed.get(field)
         if value in (None, "null", "None", ""):
             result[field] = None
+        elif field == "amount":
+            result[field] = _coerce_amount(value)
         else:
             result[field] = value
     return result
