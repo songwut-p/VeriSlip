@@ -1,3 +1,7 @@
 venv/
 Test_Original/
 __pycache__/
+test_texts/
+comparison_results/
+*:Zone.Identifier
+llm_fallback_backup_*.py

@@ -46,7 +46,7 @@ def preprocess_image_zoned(
     body_contrast: float = 1.5,
 ) -> Image.Image:
     """
-    Preprocessing แบบแบ่งโซน (เพิ่มใหม่: ตอบสนองปัญหาที่พบจาก contrast sweep test
+    Preprocessing แบบแบ่งโซน (ตอบสนองปัญหาที่พบจาก contrast sweep test
     เมื่อ 2026-07-18 - ดู ocr_test_summary.md)
 
     แบ่งภาพเป็น 2 โซนตามสัดส่วนแนวตั้ง:
@@ -55,9 +55,9 @@ def preprocess_image_zoned(
       - โซนล่าง (ที่เหลือ): เนื้อหา label-value ทั่วไป ใช้ contrast สูงกว่า (default 1.5)
         ช่วยให้ตัวบางอ่านง่ายขึ้น (เช่น เดือนไทยย่อ ก.ค.)
 
-    หมายเหตุสำคัญ: จากผลทดสอบก่อนหน้า ปัญหา label ภาษาอังกฤษคำสั้น ("From"/"To")
+    หมายเหตุสำคัญ: จากผลทดสอบพบว่าปัญหา label ภาษาอังกฤษคำสั้น ("From"/"To")
     หายไปตอน contrast สูง ไม่ได้เกิดเฉพาะโซน header เท่านั้น แต่เกิดในโซนเนื้อหาด้วย
-    ดังนั้นวิธีนี้อาจจะยังไม่แก้ปัญหานั้นได้ 100% - ต้องทดสอบเทียบผลจริงอีกที
+    วิธีนี้จึงไม่แก้ปัญหานั้นได้ 100% (ดูผลทดสอบใน ocr_test_summary.md)
     """
     if grayscale:
         image = image.convert("L")
@@ -73,7 +73,6 @@ def preprocess_image_zoned(
     if body_contrast != 1.0:
         body_zone = ImageEnhance.Contrast(body_zone).enhance(body_contrast)
 
-    # ประกอบภาพกลับเป็นภาพเดียว
     combined = Image.new(image.mode, (width, height))
     combined.paste(header_zone, (0, 0))
     combined.paste(body_zone, (0, split_y))
@@ -89,9 +88,9 @@ def preprocess_image_dynamic(
     small_text_contrast: float = 1.5,
 ) -> Image.Image:
     """
-    Preprocessing แบบ dynamic (เพิ่มใหม่: แก้ข้อจำกัดของ zoned/fixed-zone
-    ที่พบว่าปัญหาจริงไม่ได้ผูกกับตำแหน่งตายตัว เช่น header บนสุดเท่านั้น
-    แต่กระจายอยู่ทั่วภาพ - ดู ocr_test_summary.md)
+    Preprocessing แบบ dynamic (แก้ข้อจำกัดของ zoned/fixed-zone ที่พบว่าปัญหาจริง
+    ไม่ได้ผูกกับตำแหน่งตายตัว เช่น header บนสุดเท่านั้น แต่กระจายอยู่ทั่วภาพ
+    - ดู ocr_test_summary.md)
 
     ขั้นตอน:
     1. รัน Tesseract รอบแรก (image_to_data) บนภาพ grayscale ที่ยังไม่ปรับ contrast
@@ -102,8 +101,8 @@ def preprocess_image_dynamic(
        คำที่เหลือ (ตัวปกติ/บาง) -> ใช้ contrast สูงกว่า (small_text_contrast)
     4. ปรับ contrast เฉพาะในกรอบ (bounding box) ของคำนั้นๆ แล้ววางกลับตำแหน่งเดิม
 
-    หมายเหตุ: ความแม่นยำขึ้นกับผลตรวจจับรอบแรก ถ้า Tesseract หาตำแหน่งคำผิด
-    หรือไม่เจอคำบางคำเลย โซนของคำนั้นจะไม่ถูกปรับ (ใช้ภาพ grayscale เฉยๆ)
+    ผลทดสอบ (2026-07-18): แก้ปัญหา bold-vs-thin ได้ครบทุก field โดยไม่มี trade-off
+    เสียหายที่อื่น จึงเป็นค่า default ของ ocr_image_to_text() ตั้งแต่นั้นมา
     """
     if grayscale:
         image = image.convert("L")
@@ -112,7 +111,6 @@ def preprocess_image_dynamic(
 
     heights = [h for h in data["height"] if h > 0]
     if not heights:
-        # ตรวจไม่เจอคำเลย - คืนภาพ grayscale เฉยๆ ไม่ปรับอะไรเพิ่ม
         return image
 
     heights_sorted = sorted(heights)
@@ -214,13 +212,13 @@ def parse_transaction_id(text: str):
     หาเลขที่รายการ - อ้างอิงจาก label 'เลขที่รายการ' หรือ 'Transaction ID'
     แล้วดึงเลขในบรรทัดถัดไป
     """
-    pattern = r"(?:เลขที่รายการ|Transaction ID)\s*\n\s*(\d+)"
+    pattern = r"(?:เลขที่รายการ|Transaction ID)\s*:?\s*\n?\s*(\d+)"
     match = re.search(pattern, text)
     return match.group(1) if match else None
 
 
 # ============================================================
-# Datetime parsing (ปรับปรุงใหม่: แปลงเป็น field จริง day/month/year/time
+# Datetime parsing (แปลงเป็น field จริง day/month/year/time
 # แทนที่จะเก็บเป็น string ดิบเฉยๆ)
 # ============================================================
 
@@ -289,10 +287,8 @@ def parse_datetime_components(raw_str: str) -> dict:
     result["hour"] = hour
     result["minute"] = minute
 
-    # ปี: พ.ศ. (>= 2400) แปลงเป็น ค.ศ. โดยลบ 543, ถ้าน้อยกว่านั้นถือว่าเป็น ค.ศ. อยู่แล้ว
     result["year_ce"] = year - 543 if year >= 2400 else year
 
-    # เดือน: เช็คทีละแบบ (ไทยย่อ -> อังกฤษย่อ -> รู้ว่าอ่านผิด -> ไม่รู้จัก)
     month_clean = month_token.strip().lower().rstrip(",")
     if month_token in THAI_MONTH_ABBR:
         result["month"] = THAI_MONTH_ABBR[month_token]
@@ -316,7 +312,7 @@ def parse_datetime_components(raw_str: str) -> dict:
 
 
 # ============================================================
-# Account number parsing (ปรับปรุงใหม่: regex ยืดหยุ่นกว่าเดิม
+# Account number parsing (regex ยืดหยุ่นกว่าเดิม
 # + ตรวจจับว่า "เจอ label แต่ parse ไม่ได้" แทนการคืน None แบบเงียบๆ)
 # ============================================================
 
@@ -339,18 +335,17 @@ def parse_account_numbers(text: str):
     """
     lines = text.split("\n")
     results = []
-    MAX_BLANK_SKIP = 2  # ทนได้สูงสุด 2 บรรทัดว่างแทรก (tesseract บางครั้งแทรกบรรทัดว่างระหว่าง label กับ value)
+    MAX_BLANK_SKIP = 2
 
     for i, line in enumerate(lines):
         if re.fullmatch(ACCOUNT_LABEL_PATTERN, line.strip()):
-            # label เจอในบรรทัดนี้ -> หาเนื้อหาจริงถัดไป โดยข้ามบรรทัดว่างที่แทรกมา
             candidate_line = None
             for offset in range(1, MAX_BLANK_SKIP + 2):
                 idx = i + offset
                 if idx >= len(lines):
                     break
                 next_line = lines[idx].strip()
-                if next_line:  # เจอบรรทัดที่มีเนื้อหาแล้ว
+                if next_line:
                     candidate_line = next_line
                     break
             if candidate_line is None:
@@ -360,8 +355,6 @@ def parse_account_numbers(text: str):
             if match:
                 results.append({"value": normalize_account_number(match.group(0)), "issue": None})
             else:
-                # เจอ label แต่บรรทัดถัดไปไม่ match รูปแบบเลขบัญชี
-                # เคสนี้มักเกิดตอน -l tha อย่างเดียว ที่ x/X ถูกอ่านเป็นสัญลักษณ์อื่น
                 results.append({
                     "value": None,
                     "issue": (
@@ -394,8 +387,13 @@ def parse_bank_name(text: str):
 
 def parse_slip_text(ocr_text: str) -> dict:
     """
-    ฟังก์ชันหลัก: รวมทุก parser ย่อยเข้าด้วยกัน
+    ฟังก์ชันหลัก (regex-based): รวมทุก parser ย่อยเข้าด้วยกัน
     รับ OCR text ดิบ -> คืน dict ที่มีโครงสร้างชัดเจน
+
+    หมายเหตุ (2026-07-18, ทดสอบกับสลิปจริง): regex เหล่านี้ถูกออกแบบมาให้ตรงกับ
+    label ของสลิปโอนเงินคนสู่คนแบบที่ generate เป็น mock เท่านั้น สลิปจริงหลายแบบ
+    (โดยเฉพาะสลิปจ่ายบิล/QR payment) มีโครงสร้างต่างไปมาก ไม่มี label "จาก"/"ถึง"
+    ชัดเจน - ดู hybrid_parse_slip_text() สำหรับเวอร์ชันที่มี LLM fallback
     """
     amount, currency = parse_amount(ocr_text)
     sender_name, recipient_name = parse_names(ocr_text)
@@ -420,6 +418,49 @@ def parse_slip_text(ocr_text: str) -> dict:
         "datetime_raw": raw_datetime,
         "datetime_parsed": datetime_parsed,
     }
+    return result
+
+
+# ============================================================
+# Hybrid extraction (เพิ่มใหม่ 2026-07-18/19: regex ก่อน -> LLM fallback
+# เฉพาะ field ที่ regex หาไม่เจอ - ดู ocr_test_summary.md เรื่องผลทดสอบกับ
+# สลิปจริง 18 ไฟล์ที่พบว่า regex เดี่ยวๆ ไม่ครอบคลุมความหลากหลายของสลิปจริง)
+# ============================================================
+
+HYBRID_FALLBACK_FIELDS = [
+    "bank_name", "amount", "currency",
+    "sender_name", "sender_account",
+    "recipient_name", "recipient_account",
+    "transaction_id", "datetime_raw",
+]
+
+
+def hybrid_parse_slip_text(ocr_text: str, use_llm_fallback: bool = True, llm_model: str = "qwen2.5:7b") -> dict:
+    """
+    เหมือน parse_slip_text() แต่เพิ่มขั้นตอน fallback: field ไหนที่ regex parse
+    ไม่ได้ (เป็น None) จะส่ง OCR text ไปให้ local LLM (qwen2.5:7b ผ่าน Ollama)
+    ช่วยดึงแทน เพื่อรองรับสลิปจริงที่มี template/wording ต่างจาก mock
+
+    เพิ่ม key "extraction_source" (dict) บอกว่าแต่ละ field มาจาก "regex" หรือ "llm"
+    เพื่อความโปร่งใส - field ที่มาจาก LLM ควรตรวจสอบเพิ่มก่อนเชื่อ 100%
+    โดยเฉพาะข้อมูลตัวเลข/บัญชีที่มีผลทางการเงิน
+
+    ตั้ง use_llm_fallback=False เพื่อใช้ผล regex ล้วนๆ (พฤติกรรมเดิมของ parse_slip_text())
+    """
+    result = parse_slip_text(ocr_text)
+    extraction_source = {field: "regex" for field in HYBRID_FALLBACK_FIELDS}
+
+    if use_llm_fallback:
+        missing = [f for f in HYBRID_FALLBACK_FIELDS if not result.get(f)]
+        if missing:
+            from llm_fallback import llm_extract_fields
+            llm_result = llm_extract_fields(ocr_text, missing, model=llm_model)
+            for field, value in llm_result.items():
+                if value is not None:
+                    result[field] = value
+                    extraction_source[field] = "llm"
+
+    result["extraction_source"] = extraction_source
     return result
 
 
