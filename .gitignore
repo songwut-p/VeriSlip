@@ -4,4 +4,6 @@ __pycache__/
 test_texts/
 comparison_results/
 *:Zone.Identifier
+chroma_db/
 llm_fallback_backup_*.py
+slips.db
