@@ -5,6 +5,8 @@ from pathlib import Path
 from fastapi import FastAPI, UploadFile, File
 from backend.schemas import AskRequest, AskResponse, SaveSlipRequest
 from ocr.parse_slip import ocr_image_to_text, hybrid_parse_slip_text
+from db.import_slips import save_record
+from rag.build_index import index_row
 
 app = FastAPI(title="AI Document Assistant API")
 
@@ -33,7 +35,15 @@ async def upload_slip(file: UploadFile = File(...)):
 
 @app.post("/save-slip")
 async def save_slip(req: SaveSlipRequest):
-    return {"filename": req.filename, "status": "not saved yet (placeholder)"}
+    record = {"filename": req.filename, **req.parsed}
+    row = save_record(record)
+    doc_text = index_row(row)
+    return {
+        "filename": row["filename"],
+        "status": "saved",
+        "db_row": row,
+        "indexed_text": doc_text,
+    }
 
 @app.post("/ask", response_model=AskResponse)
 async def ask(req: AskRequest):

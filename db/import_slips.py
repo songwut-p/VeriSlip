@@ -18,7 +18,7 @@ import sqlite3
 import unicodedata
 from pathlib import Path
 
-DB_PATH = "slips.db"
+DB_PATH = "db/slips.db"
 DEFAULT_JSON_PATH = "results_hybrid.json"
 
 FIELD_NAMES = [
@@ -208,6 +208,18 @@ ON CONFLICT(filename) DO UPDATE SET
     transaction_id_issue=excluded.transaction_id_issue, datetime_issue=excluded.datetime_issue,
     source_app=excluded.source_app, raw_json=excluded.raw_json, updated_at=CURRENT_TIMESTAMP;
 """
+
+def save_record(record: dict, db_path: str = DB_PATH) -> dict:
+    """
+    บันทึก record เดียว (เช่น จาก API /save-slip) ลง SQLite
+    reuse extract_record()/UPSERT_SQL เดียวกับ batch import เพื่อไม่ให้ logic ซ้ำซ้อน/ไม่ตรงกัน
+    """
+    row = extract_record(record)
+    conn = sqlite3.connect(db_path)
+    conn.execute(UPSERT_SQL, row)
+    conn.commit()
+    conn.close()
+    return row
 
 
 def main():

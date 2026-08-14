@@ -14,7 +14,17 @@ if page == "Upload Slip":
     if uploaded_file and st.button("อัปโหลด"):
         files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
         resp = requests.post(f"{API_BASE}/upload-slip", files=files)
+        st.session_state["last_upload"] = resp.json()
         st.json(resp.json())
+
+    if "last_upload" in st.session_state:
+        if st.button("บันทึกลงฐานข้อมูล"):
+            payload = {
+                "filename": st.session_state["last_upload"]["filename"],
+                "parsed": st.session_state["last_upload"]["parsed"],
+            }
+            save_resp = requests.post(f"{API_BASE}/save-slip", json=payload)
+            st.json(save_resp.json())
 
 elif page == "Ask":
     st.header("ถามคำถามเกี่ยวกับสลิป")

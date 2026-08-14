@@ -17,7 +17,7 @@ import sqlite3
 import chromadb
 from sentence_transformers import SentenceTransformer
 
-DB_PATH = "slips.db"
+DB_PATH = "db/slips.db"
 CHROMA_PATH = "chroma_db"
 COLLECTION_NAME = "slips"
 EMBED_MODEL_NAME = "intfloat/multilingual-e5-small"
@@ -51,6 +51,46 @@ def load_rows():
     rows = [dict(r) for r in conn.execute("SELECT * FROM slips")]
     conn.close()
     return rows
+
+
+_model = None  # lazy-loaded singleton — โหลดโมเดลครั้งเดียวตอน request แรก ไม่ใช่ทุกครั้งที่เรียก
+
+
+def _get_model() -> SentenceTransformer:
+    global _model
+    if _model is None:
+        _model = SentenceTransformer(EMBED_MODEL_NAME)
+    return _model
+
+
+def index_row(row: dict, chroma_path: str = CHROMA_PATH) -> str:
+    """
+    Embed + upsert record เดียวเข้า Chroma (ใช้ตอน save ทีละสลิปจาก API
+    แทนที่จะ re-embed ทั้ง collection ทุกครั้งเหมือน main() ที่ออกแบบมาสำหรับ batch)
+    คืนค่า document text ที่ index ไป (เผื่อ debug/แสดงผล)
+    """
+    model = _get_model()
+    client = chromadb.PersistentClient(path=chroma_path)
+    collection = client.get_or_create_collection(COLLECTION_NAME)
+
+    doc_text = build_document_text(row)
+    embedding = model.encode([f"passage: {doc_text}"], normalize_embeddings=True).tolist()
+
+    collection.upsert(
+        ids=[row["filename"]],
+        embeddings=embedding,
+        documents=[doc_text],
+        metadatas=[{
+            "filename": row["filename"],
+            "amount": row.get("amount") or 0.0,
+            "source_app": row.get("source_app") or "unknown",
+            "datetime_year": row.get("datetime_year") or 0,
+            "datetime_month": row.get("datetime_month") or 0,
+            "recipient_name": row.get("recipient_name") or "",
+            "sender_name": row.get("sender_name") or "",
+        }],
+    )
+    return doc_text
 
 
 def main():

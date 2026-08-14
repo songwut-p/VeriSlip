@@ -10,4 +10,4 @@ class AskResponse(BaseModel):
 
 class SaveSlipRequest(BaseModel):
     filename: str
-    # จะเติม field อื่นๆ ตอน step 2-3 ที่ต่อกับ parse_slip.py จริง
+    parsed: dict  # ทั้งก้อนที่ได้จาก /upload-slip -> parsed
