@@ -31,7 +31,7 @@ import re
 import sqlite3
 from datetime import date
 
-DB_PATH = "slips.db"
+DB_PATH = "db/slips.db"
 
 # ----------------------------------------------------------------------------
 # Safety layer: ทุก SQL ที่มาจาก LLM ต้องผ่านตรงนี้ก่อนรันเสมอ

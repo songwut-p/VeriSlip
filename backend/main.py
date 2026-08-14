@@ -3,10 +3,13 @@ import tempfile
 from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File
-from backend.schemas import AskRequest, AskResponse, SaveSlipRequest
+from backend.schemas import AskRequest, SaveSlipRequest
 from ocr.parse_slip import ocr_image_to_text, hybrid_parse_slip_text
 from db.import_slips import save_record
 from rag.build_index import index_row
+from rag.query_router import answer_question
+from rag.llm_sql import call_ollama_for_sql
+from rag.semantic_search import semantic_search
 
 app = FastAPI(title="AI Document Assistant API")
 
@@ -45,6 +48,11 @@ async def save_slip(req: SaveSlipRequest):
         "indexed_text": doc_text,
     }
 
-@app.post("/ask", response_model=AskResponse)
+@app.post("/ask")
 async def ask(req: AskRequest):
-    return AskResponse(answer=f"placeholder answer for: {req.question}", mode="placeholder")
+    result = answer_question(
+        req.question,
+        llm_call_fn=call_ollama_for_sql,
+        semantic_search_fn=semantic_search,
+    )
+    return result
