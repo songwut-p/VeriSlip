@@ -13,7 +13,7 @@ compare_preprocess.py
 """
 
 import os
-from parse_slip import ocr_image_to_text
+from ocr.parse_slip import ocr_image_to_text
 
 FOLDER = "test_files"
 FILES = ["mock_slip.png", "mock_slip_en.png", "mock_slip_mixed.png"]

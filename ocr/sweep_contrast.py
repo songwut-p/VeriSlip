@@ -9,7 +9,7 @@ sweep_contrast.py
     python3 sweep_contrast.py
 """
 
-from parse_slip import ocr_image_to_text, parse_slip_text
+from ocr.parse_slip import ocr_image_to_text, parse_slip_text
 
 CONTRAST_VALUES = [1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
 

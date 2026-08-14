@@ -17,7 +17,7 @@ test_real_slips_hybrid.py
 
 import json
 import os
-from parse_slip import ocr_image_to_text, hybrid_parse_slip_text, parse_slip_text
+from ocr.parse_slip import ocr_image_to_text, hybrid_parse_slip_text, parse_slip_text
 
 FOLDER = "Test_Original"
 SUPPORTED_EXT = (".png", ".jpg", ".jpeg")

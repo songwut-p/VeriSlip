@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from import_slips import load_records, unwrap, resolve_datetime
+from db.import_slips import load_records, unwrap, resolve_datetime
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--path", default="results_hybrid.json")

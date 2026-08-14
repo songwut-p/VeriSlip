@@ -19,7 +19,7 @@ Test_Original/ เท่านั้น
 
 import json
 import os
-from parse_slip import ocr_image_to_text, parse_slip_text
+from ocr.parse_slip import ocr_image_to_text, parse_slip_text
 
 FOLDER = "Test_Original"
 SUPPORTED_EXT = (".png", ".jpg", ".jpeg")

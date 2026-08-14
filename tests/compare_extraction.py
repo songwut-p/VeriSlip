@@ -19,7 +19,7 @@ compare_extraction.py (v2)
 
 import os
 
-from llm_fallback import _build_prompt, llm_extract_fields
+from rag.llm_fallback import _build_prompt, llm_extract_fields
 
 # ---------- ตั้งค่า ----------
 TEST_TEXT_DIR = "test_texts"

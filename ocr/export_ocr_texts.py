@@ -16,7 +16,7 @@ export_ocr_texts.py
 """
 
 import os
-from parse_slip import ocr_image_to_text
+from ocr.parse_slip import ocr_image_to_text
 
 # ไฟล์ทั้งหมด 14 ไฟล์ที่ sender_account ยังหายหลัง hybrid (จาก results_hybrid.json)
 # รวม 2 ไฟล์ที่เคยทดสอบไปแล้ว (016204115426839109, 016206012606BOR03881)

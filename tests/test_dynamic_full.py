@@ -11,7 +11,7 @@ test_dynamic_full.py
 """
 
 import time
-from parse_slip import ocr_image_to_text, parse_slip_text
+from ocr.parse_slip import ocr_image_to_text, parse_slip_text
 
 FILES = {
     "ไทย": "test_files/mock_slip.png",
