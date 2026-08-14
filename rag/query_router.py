@@ -3,14 +3,14 @@ Phase 2 - Step 3+4: Query layer (hybrid: pattern-matched intents -> semantic sea
 สำหรับคำถามเชิงความหมาย -> LLM text-to-SQL เป็นทางสำรองสุดท้าย)
 
 วิธีใช้:
-    from query_router import answer_question
+    from rag.query_router import answer_question
 
     # ไม่มี LLM/semantic search (ทดสอบเฉพาะ pattern ที่กำหนดไว้)
     result = answer_question("เดือนนี้โอนไปทั้งหมดเท่าไหร่")
 
     # ต่อครบทั้ง semantic search และ LLM-SQL fallback
-    from llm_sql import call_ollama_for_sql
-    from semantic_search import semantic_search
+    from rag.llm_sql import call_ollama_for_sql
+    from rag.semantic_search import semantic_search
     result = answer_question(
         "มีสลิปกี่ใบที่เกี่ยวกับร้านกาแฟ",
         llm_call_fn=call_ollama_for_sql,

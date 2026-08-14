@@ -2,7 +2,7 @@
 Phase 2 - Step 4b: semantic search ผ่าน Chroma สำหรับคำถามเชิงความหมาย
 
 วิธีใช้:
-    from semantic_search import semantic_search
+    from rag.semantic_search import semantic_search
     results = semantic_search("สลิปที่เกี่ยวกับร้านกาแฟ", top_k=5)
 
 ต้องรัน build_index.py ให้เสร็จก่อนอย่างน้อย 1 ครั้ง ไม่งั้น collection จะว่าง

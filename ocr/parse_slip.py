@@ -453,7 +453,7 @@ def hybrid_parse_slip_text(ocr_text: str, use_llm_fallback: bool = True, llm_mod
     if use_llm_fallback:
         missing = [f for f in HYBRID_FALLBACK_FIELDS if not result.get(f)]
         if missing:
-            from llm_fallback import llm_extract_fields
+            from rag.llm_fallback import llm_extract_fields
             llm_result = llm_extract_fields(ocr_text, missing, model=llm_model)
             for field, value in llm_result.items():
                 if value is not None:

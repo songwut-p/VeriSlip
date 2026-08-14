@@ -6,8 +6,8 @@ rag_qa.py ตอบคำถามจาก context สลิป ส่วนต
 ห้าม reuse SYSTEM_PROMPT ของ rag_qa.py เพราะกฎเรื่อง "ไม่พบข้อมูล"/วันเวลา ไม่เกี่ยวกับงานนี้
 
 วิธีใช้:
-    from query_router import answer_question
-    from llm_sql import call_ollama_for_sql
+    from rag.query_router import answer_question
+    from rag.llm_sql import call_ollama_for_sql
 
     result = answer_question("มีสลิปกี่ใบที่เกี่ยวกับร้านกาแฟ", llm_call_fn=call_ollama_for_sql)
 """

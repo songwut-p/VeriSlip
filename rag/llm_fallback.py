@@ -11,14 +11,14 @@ QR payment ที่ไม่มี label "จาก"/"ถึง" ชัดเ�
     (ต้องมี Ollama รันอยู่ในเครื่อง และดึงโมเดล qwen2.5:7b ไว้แล้ว: ollama pull qwen2.5:7b)
 
 ใช้งาน:
-    from llm_fallback import llm_extract_fields
+    from rag.llm_fallback import llm_extract_fields
     extracted = llm_extract_fields(ocr_text, missing_fields=["sender_name", "amount"])
 """
 
 import json
 import re
 
-MODEL_NAME = "qwen2.5:7b"
+MODEL_NAME = "qwen3:8b"
 
 FIELD_DESCRIPTIONS = {
     "bank_name": "ชื่อธนาคารหรือแอปที่ออกสลิปนี้ (เช่น ธนาคารกสิกรไทย, K PLUS)",
@@ -126,11 +126,15 @@ def llm_extract_fields(ocr_text: str, missing_fields: list, model: str = MODEL_N
             model=model,
             messages=[{"role": "user", "content": prompt}],
             options={"temperature": 0.1},  # ลด randomness เพราะเป็นงาน extraction ไม่ใช่ creative
+            think=False,  # ป้องกันบั๊กเดิม (qwen3 thinking-mode กินโควตา token จนตอบว่างเปล่า - เจอมาแล้วใน rag_qa.py/llm_sql.py)
         )
         raw_text = response["message"]["content"]
     except Exception:
         # Ollama ไม่ทำงาน/ต่อไม่ติด/โมเดลไม่มี - คืน None ทั้งหมด ไม่ throw error ทำ pipeline พัง
         return {field: None for field in missing_fields}
+
+    # defense-in-depth: เผื่อ think=False ไม่ถูกรองรับ (เวอร์ชัน ollama เก่า) แล้ว <think> tag หลุดมาปนใน content
+    raw_text = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
 
     parsed = _extract_json(raw_text)
 
