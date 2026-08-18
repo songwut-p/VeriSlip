@@ -454,6 +454,44 @@ def parse_names(text: str):
                 if prompt_idx is not None:
                     recipient = _preceding_nonblank(prompt_idx)
 
+    if sender is None or recipient is None:
+        combined_acct_pattern = f"(?:{ACCOUNT_NUMBER_PATTERN})|(?:{PROMPTPAY_ID_PATTERN})"
+        acct_matches = list(re.finditer(combined_acct_pattern, text))
+
+        def _preceding_nonblank_from_offset(char_offset, min_len=3, max_lookback=5):
+            """Same garbage-line-skipping logic as the bank-marker
+            fallback above, but anchored on an account-number match's
+            character offset instead of a 'ธ.' line index."""
+            line_idx = text[:char_offset].count("\n")
+            steps = 0
+            for j in range(line_idx - 1, -1, -1):
+                steps += 1
+                if steps > max_lookback:
+                    break
+                candidate = lines[j].strip()
+                if not candidate or len(candidate) < min_len:
+                    continue
+                candidate = re.sub(r"^[a-zA-Z]{1,3}\s+(?=\S)", "", candidate)
+                return candidate
+            return None
+
+        # 3rd-tier fallback (18 Aug 2026): "make by KBank" app slips have
+        # NO "ธ." marker at all (uses a plain icon instead), so the "ธ."
+        # anchor above never fires for them. Anchor on account-number
+        # position instead -- works for both K+ and Make since both
+        # place the name directly above the account number/PromptPay ID.
+        # Empirically (2 real Make slips checked), the sender's account
+        # is the one OCR corrupts into unreadable garbage while the
+        # recipient's stays legible -- so a single match is treated as
+        # the recipient, not guessed as the sender.
+        if len(acct_matches) >= 2:
+            if sender is None:
+                sender = _preceding_nonblank_from_offset(acct_matches[0].start())
+            if recipient is None:
+                recipient = _preceding_nonblank_from_offset(acct_matches[1].start())
+        elif len(acct_matches) == 1 and recipient is None:
+            recipient = _preceding_nonblank_from_offset(acct_matches[0].start())
+
     return sender, recipient
 
 
