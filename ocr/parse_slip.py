@@ -316,8 +316,22 @@ def parse_datetime_components(raw_str: str) -> dict:
 # + ตรวจจับว่า "เจอ label แต่ parse ไม่ได้" แทนการคืน None แบบเงียบๆ)
 # ============================================================
 
-ACCOUNT_NUMBER_PATTERN = r"[xX]{1,4}-[xX]{1,2}-[xX]{0,2}\d{2,6}-\d{1,2}"
+ACCOUNT_NUMBER_PATTERN = r"[xX%]{1,4}-[xX%]{1,2}-[xX%]{0,2}\d{2,6}-[xX%\d]{1,2}"
 ACCOUNT_LABEL_PATTERN = r"(?:เลขที่บัญชี|From Account|To Account)"
+
+# PromptPay ID shape (e.g. "xxx-xxx-4906") -- distinct from a bank account
+# number shape (which ends "-x" or "-##"). Added 18 Aug 2026: newer K+
+# slip screenshots have no "เลขที่บัญชี" label at all -- the number/PromptPay
+# ID sits directly under the bank-name line with no label text to anchor on.
+PROMPTPAY_ID_PATTERN = r"[xX]{2,4}-[xX]{2,4}-\d{3,6}"
+
+
+def _scan_positional_account_matches(text: str):
+    """Fallback for slips with no account-number label at all: scan the
+    whole text in order for anything shaped like a bank account number
+    or a PromptPay ID, first two occurrences = sender, recipient."""
+    combined = f"(?:{ACCOUNT_NUMBER_PATTERN})|(?:{PROMPTPAY_ID_PATTERN})"
+    return [m.group(0) for m in re.finditer(combined, text)]
 
 
 def normalize_account_number(acc_str: str) -> str:
@@ -363,11 +377,39 @@ def parse_account_numbers(text: str):
                     ),
                 })
 
+    # positional fallback (18 Aug 2026): if fewer than 2 usable values
+    # were found via the label-based loop above, some K+ slip designs
+    # have NO "เลขที่บัญชี" label at all -- scan the whole text
+    # positionally for account/PromptPay-shaped tokens instead.
+    if len(results) < 2 or any(r["value"] is None for r in results):
+        positional = _scan_positional_account_matches(text)
+        merged = []
+        for i in range(2):
+            if i < len(results) and results[i]["value"] is not None:
+                merged.append(results[i])
+            elif i < len(positional):
+                merged.append({"value": normalize_account_number(positional[i]), "issue": None})
+            elif i < len(results):
+                merged.append(results[i])
+            else:
+                merged.append({"value": None, "issue": "label not found"})
+        results = merged
+
     return results
 
 
 def parse_names(text: str):
-    """หาชื่อผู้โอน/ผู้รับ - อ้างอิงจาก label ไทย (จาก/ถึง) หรืออังกฤษ (From/To)"""
+    """หาชื่อผู้โอน/ผู้รับ
+
+    ลำดับความสำคัญ:
+    1. label แบบเดิม "จาก"/"ถึง" หรือ "From"/"To" (สลิปที่มี label เหล่านี้จริง)
+    2. positional fallback (เพิ่ม 18 Aug 2026): K+ ไม่มี label "จาก"/"ถึง" เลย
+       ใช้ไอคอนวงกลม+ลูกศรแทน ซึ่งไม่มีตัวอักษรให้ OCR อ่าน
+       -> ผู้โอน: บรรทัดก่อนหน้า "ธ." (ชื่อธนาคาร) ตัวแรกที่เจอ
+       -> ผู้รับ: บรรทัดก่อนหน้า "ธ." ตัวที่สอง (โอนไปอีกธนาคาร) หรือก่อนหน้า
+          "Prompt" (โอนผ่านพร้อมเพย์) ถ้าไม่เจอทั้งสองแบบ (เช่น จ่ายบิลร้านค้า
+          ที่ไม่มี anchor ชัดเจน) ถือเป็น known limitation - คืน None
+    """
     sender_pattern = r"(?:^|\n)(?:จาก|From)\s*\n\s*(.+)"
     recipient_pattern = r"(?:^|\n)(?:ถึง|To)\s*\n\s*(.+)"
 
@@ -376,6 +418,42 @@ def parse_names(text: str):
 
     sender = sender_match.group(1).strip() if sender_match else None
     recipient = recipient_match.group(1).strip() if recipient_match else None
+
+    if sender is None or recipient is None:
+        lines = [l.rstrip() for l in text.split("\n")]
+        bank_marker_idxs = [i for i, l in enumerate(lines) if re.match(r"^\s*ธ\.", l.strip())]
+
+        def _preceding_nonblank(idx, min_len=3, max_lookback=5):
+            """Walk backward for the nearest usable line. Skips very
+            short lines (< min_len chars) since decorative watermark
+            icons (flowers, hearts, etc.) sometimes OCR into a stray
+            1-2 char garbage line sitting directly above the real name
+            -- found 18 Aug 2026 on a mother's-day-themed K+ slip."""
+            steps = 0
+            for j in range(idx - 1, -1, -1):
+                steps += 1
+                if steps > max_lookback:
+                    break
+                candidate = lines[j].strip()
+                if not candidate or len(candidate) < min_len:
+                    continue
+                candidate = re.sub(r"^[a-zA-Z]{1,3}\s+(?=\S)", "", candidate)
+                return candidate
+            return None
+
+        if sender is None and len(bank_marker_idxs) >= 1:
+            sender = _preceding_nonblank(bank_marker_idxs[0])
+
+        if recipient is None:
+            if len(bank_marker_idxs) >= 2:
+                recipient = _preceding_nonblank(bank_marker_idxs[1])
+            else:
+                prompt_idx = next(
+                    (i for i, l in enumerate(lines) if "prompt" in l.lower()), None
+                )
+                if prompt_idx is not None:
+                    recipient = _preceding_nonblank(prompt_idx)
+
     return sender, recipient
 
 

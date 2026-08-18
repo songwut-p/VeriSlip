@@ -2,8 +2,8 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from PIL import Image
 from fastapi import FastAPI, UploadFile, File
+from pytesseract import TesseractError
 from backend.schemas import AskRequest, SaveSlipRequest
 from ocr.parse_slip import ocr_image_to_text, hybrid_parse_slip_text
 from ocr.document_classifier import classify_document
@@ -15,20 +15,6 @@ from rag.llm_sql import call_ollama_for_sql
 from rag.semantic_search import semantic_search
 
 app = FastAPI(title="AI Document Assistant API")
-
-
-def _should_skip_preprocess(image_path: str) -> bool:
-    """Stop-gap guard: zone-based preprocessing hangs/is very slow on
-    unusually tall images (e.g. scrolling screenshots like Dime!
-    confirmations, ~4-5x taller than wide). Full fix (aspect-ratio-aware
-    zone OCR) is Phase 4 Item 2 -- this just prevents the endpoint from
-    hanging in the meantime."""
-    try:
-        with Image.open(image_path) as im:
-            width, height = im.size
-        return height > width * 2.5
-    except Exception:
-        return False
 
 
 @app.get("/health")
@@ -44,8 +30,7 @@ async def upload_slip(file: UploadFile = File(...)):
         tmp_path = tmp.name
 
     try:
-        skip_preprocess = _should_skip_preprocess(tmp_path)
-        ocr_text = ocr_image_to_text(tmp_path, preprocess=not skip_preprocess)
+        ocr_text = ocr_image_to_text(tmp_path)
 
         doc_type = classify_document(ocr_text)
         if doc_type == "stock_confirmation":
