@@ -2,9 +2,12 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from PIL import Image
 from fastapi import FastAPI, UploadFile, File
 from backend.schemas import AskRequest, SaveSlipRequest
 from ocr.parse_slip import ocr_image_to_text, hybrid_parse_slip_text
+from ocr.document_classifier import classify_document
+from ocr.parse_stock import parse_stock_confirmation_text
 from db.import_slips import save_record
 from rag.build_index import index_row
 from rag.query_router import answer_question
@@ -13,9 +16,25 @@ from rag.semantic_search import semantic_search
 
 app = FastAPI(title="AI Document Assistant API")
 
+
+def _should_skip_preprocess(image_path: str) -> bool:
+    """Stop-gap guard: zone-based preprocessing hangs/is very slow on
+    unusually tall images (e.g. scrolling screenshots like Dime!
+    confirmations, ~4-5x taller than wide). Full fix (aspect-ratio-aware
+    zone OCR) is Phase 4 Item 2 -- this just prevents the endpoint from
+    hanging in the meantime."""
+    try:
+        with Image.open(image_path) as im:
+            width, height = im.size
+        return height > width * 2.5
+    except Exception:
+        return False
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
 
 @app.post("/upload-slip")
 async def upload_slip(file: UploadFile = File(...)):
@@ -25,16 +44,26 @@ async def upload_slip(file: UploadFile = File(...)):
         tmp_path = tmp.name
 
     try:
-        ocr_text = ocr_image_to_text(tmp_path)
-        parsed = hybrid_parse_slip_text(ocr_text)
+        skip_preprocess = _should_skip_preprocess(tmp_path)
+        ocr_text = ocr_image_to_text(tmp_path, preprocess=not skip_preprocess)
+
+        doc_type = classify_document(ocr_text)
+        if doc_type == "stock_confirmation":
+            parsed = parse_stock_confirmation_text(ocr_text)
+        elif doc_type == "bank_slip":
+            parsed = hybrid_parse_slip_text(ocr_text)
+        else:
+            parsed = {"note": "unrecognized document type, no fields extracted"}
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
     return {
         "filename": file.filename,
+        "doc_type": doc_type,
         "ocr_text": ocr_text,
         "parsed": parsed,
     }
+
 
 @app.post("/save-slip")
 async def save_slip(req: SaveSlipRequest):
@@ -47,6 +76,7 @@ async def save_slip(req: SaveSlipRequest):
         "db_row": row,
         "indexed_text": doc_text,
     }
+
 
 @app.post("/ask")
 async def ask(req: AskRequest):

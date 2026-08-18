@@ -7,3 +7,4 @@ comparison_results/
 chroma_db/
 llm_fallback_backup_*.py
 slips.db
+tests/test_parse_stock_manual.py
