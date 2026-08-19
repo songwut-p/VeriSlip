@@ -3,9 +3,37 @@ import requests
 
 API_BASE = "http://localhost:8000"
 
+FIELD_LABELS = {
+    "bank_name": "ธนาคาร/แอป",
+    "amount": "จำนวนเงิน",
+    "currency": "สกุลเงิน",
+    "sender_name": "ชื่อผู้โอน",
+    "sender_account": "เลขบัญชีผู้โอน",
+    "recipient_name": "ชื่อผู้รับ",
+    "recipient_account": "เลขบัญชีผู้รับ",
+    "transaction_id": "เลขที่รายการ",
+    "datetime_raw": "วันเวลาที่ทำรายการ",
+    # stock confirmation fields
+    "symbol": "สัญลักษณ์หุ้น",
+    "exchange": "ตลาดหลักทรัพย์",
+    "amount_thb": "จำนวนเงิน (บาท)",
+    "amount_usd": "จำนวนเงิน (USD)",
+    "exchange_rate": "อัตราแลกเปลี่ยน",
+    "order_type": "ประเภทคำสั่ง",
+    "order_id": "เลขที่คำสั่งซื้อ",
+    "receiving_reference": "เลขที่อ้างอิงการรับเงิน",
+    "payment_reference": "เลขที่อ้างอิงการชำระเงิน",
+    "foreign_securities_account": "เลขที่บัญชีหลักทรัพย์ต่างประเทศ",
+    "receiving_account": "เลขที่บัญชีรับเงิน",
+    "stock_value_thb": "มูลค่าหุ้น (บาท)",
+    "commission_thb": "ค่าคอมมิชชัน (บาท)",
+    "vat_thb": "ภาษีมูลค่าเพิ่ม (บาท)",
+    "price_usd": "ราคาต่อหุ้น (USD)",
+    "shares": "จำนวนหุ้น",
+}
+
 st.set_page_config(page_title="AI Document Assistant", page_icon="🧾")
 st.title("AI Document Assistant")
-
 
 def call_api(method: str, path: str, spinner_text: str, **kwargs):
     try:
@@ -52,7 +80,6 @@ if page == "Upload Slip":
             st.success(f"อ่านไฟล์สำเร็จ — ตรวจพบว่าเป็น: **{label}**")
 
             parsed = result.get("parsed", {})
-            # field ที่เป็น metadata ภายใน (nested dict) ไม่ใช่ค่าที่คนอ่านง่าย -- ซ่อนไว้ debug
             INTERNAL_FIELDS = {"datetime_parsed", "extraction_source"}
             display_fields = {
                 k: v for k, v in parsed.items()
@@ -60,7 +87,7 @@ if page == "Upload Slip":
             }
             if display_fields:
                 st.table(
-                    [{"ฟิลด์": k, "ค่าที่อ่านได้": v if v is not None else "—"}
+                    [{"ฟิลด์": FIELD_LABELS.get(k, k), "ค่าที่อ่านได้": v if v is not None else "—"}
                      for k, v in display_fields.items()]
                 )
 
