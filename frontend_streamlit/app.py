@@ -70,9 +70,6 @@ if page == "Upload Slip":
                     for k, v in issue_fields.items():
                         st.write(f"- **{k}**: {v}")
 
-            with st.expander("ดูข้อมูลดิบ (สำหรับ debug)"):
-                st.json(result)
-
     if "last_upload" in st.session_state:
         if st.button("บันทึกลงฐานข้อมูล"):
             payload = {
@@ -91,13 +88,15 @@ if page == "Upload Slip":
                 col1, col2 = st.columns(2)
                 col1.metric("ยอดเงิน", f"{row['amount']:,.2f} {row.get('currency') or ''}" if row.get("amount") is not None else "ไม่ทราบยอด")
                 col2.metric("ประเภทเอกสาร", "สลิปโอนเงิน" if row.get("doc_type") == "bank_slip" else "ใบยืนยันซื้อหุ้น")
-                with st.expander("ดูข้อมูลดิบ (สำหรับ debug)"):
-                    st.json(save_result)
+
 
 elif page == "Ask":
     st.header("ถามคำถามเกี่ยวกับสลิป")
-    question = st.text_input("คำถาม")
-    if question and st.button("ถาม"):
+    with st.form("ask_form"):
+        question = st.text_input("คำถาม")
+        submitted = st.form_submit_button("ถาม")
+
+    if submitted and question:
         result = call_api(
             "POST", "/ask",
             spinner_text="กำลังค้นหาคำตอบ (pattern → semantic → LLM-SQL)...",
@@ -112,8 +111,6 @@ elif page == "Ask":
                     st.table(rows)
                 else:
                     st.info("ไม่พบข้อมูลที่ตรงกับคำถาม")
-                with st.expander("ดู SQL ที่ใช้ค้นหา (สำหรับ debug)"):
-                    st.code(result.get("sql", ""), language="sql")
 
             elif mode == "semantic":
                 matches = result.get("matches", [])
@@ -133,8 +130,7 @@ elif page == "Ask":
                 st.error("เกิดข้อผิดพลาดขณะค้นหาข้อมูล")
 
             else:
-                with st.expander("ผลลัพธ์ดิบ (สำหรับ debug)"):
-                    st.json(result)
+                st.warning("ไม่สามารถแสดงผลลัพธ์ของคำถามนี้ได้")
 
 elif page == "Dashboard":
     st.header("แดชบอร์ดสรุปข้อมูล")
