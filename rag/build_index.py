@@ -12,6 +12,7 @@ Phase 2 - Step 4a: สร้าง/อัปเดต Chroma vector index จา
 ไม่ต้องจำเอง — แต่ถ้าจะเขียนเพิ่มเติมเองต้องระวังจุดนี้ ไม่งั้นคุณภาพผลลัพธ์จะตกฮวบ)
 """
 
+import json
 import sqlite3
 
 import chromadb
@@ -28,6 +29,29 @@ def build_document_text(row: dict) -> str:
     รวม field ที่มีความหมายเชิงเนื้อหาของสลิปเป็นข้อความเดียว สำหรับ embed
     (ไม่รวม field เชิงเทคนิคเช่น transaction_id/account number ที่ไม่ช่วย semantic search)
     """
+    if row.get("doc_type") == "stock_confirmation":
+        # field แบบ bank slip (recipient_name, sender_name, bank_name) เป็น null
+        # สำหรับแถว stock -- symbol/exchange/order_type อยู่ใน raw_json เท่านั้น
+        # เพราะไม่มีคอลัมน์แยก (ดู extract_record())
+        extra = {}
+        if row.get("raw_json"):
+            try:
+                extra = json.loads(row["raw_json"])
+            except (TypeError, ValueError):
+                extra = {}
+        parts = []
+        if extra.get("symbol"):
+            parts.append(f"ซื้อหุ้น {extra['symbol']}")
+        if extra.get("exchange"):
+            parts.append(f"ตลาด {extra['exchange']}")
+        if row.get("amount") is not None:
+            parts.append(f"จำนวน {row['amount']:.2f} บาท")
+        if extra.get("order_type"):
+            parts.append(f"ประเภทคำสั่ง {extra['order_type']}")
+        if row.get("source_app") and row["source_app"] != "unknown":
+            parts.append(f"ผ่านแอป {row['source_app']}")
+        return " ".join(parts) if parts else row.get("filename", "")
+
     parts = []
     if row.get("recipient_name"):
         parts.append(f"โอนเงินให้ {row['recipient_name']}")

@@ -13,6 +13,13 @@ from rag.build_index import index_row
 from rag.query_router import answer_question
 from rag.llm_sql import call_ollama_for_sql
 from rag.semantic_search import semantic_search
+from backend.dashboard_queries import (
+    get_summary_stats,
+    get_totals_by_app,
+    get_trend_by_month,
+    get_recent_slips,
+    get_stock_summary,
+)
 
 app = FastAPI(title="AI Document Assistant API")
 
@@ -21,6 +28,15 @@ app = FastAPI(title="AI Document Assistant API")
 def health():
     return {"status": "ok"}
 
+@app.get("/dashboard/summary")
+def dashboard_summary():
+    return {
+        "summary": get_summary_stats(),
+        "totals_by_app_bank_slip": get_totals_by_app("bank_slip"),
+        "trend_by_month_bank_slip": get_trend_by_month("bank_slip"),
+        "stock_summary": get_stock_summary(),
+        "recent_slips": get_recent_slips(limit=10),
+    }
 
 @app.post("/upload-slip")
 async def upload_slip(file: UploadFile = File(...)):
@@ -53,7 +69,7 @@ async def upload_slip(file: UploadFile = File(...)):
 @app.post("/save-slip")
 async def save_slip(req: SaveSlipRequest):
     record = {"filename": req.filename, **req.parsed}
-    row = save_record(record)
+    row = save_record(record, doc_type=req.doc_type)
     doc_text = index_row(row)
     return {
         "filename": row["filename"],

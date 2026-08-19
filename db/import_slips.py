@@ -135,16 +135,62 @@ def guess_source_app(filename: str, bank_name: str) -> str:
         return "TrueMoney"
     if "make" in text:
         return "Make"
-    if "k+" in text or "kasikorn" in text or re.match(r"^\d{18}$", filename or ""):
+    if "k+" in text or "kasikorn" in text:
+        return "K+"
+    # K+ transaction-reference filenames มี pattern เสถียร: ขึ้นต้น "016" ตามด้วยตัวเลข
+    # (บางไฟล์มี suffix ตัวอักษร 3 ตัว + ตัวเลขต่อท้าย เช่น "016206012606BOR03881",
+    # "016214203541530151") -- ใช้ filename stem แทน bank_name เพราะ K+ ใช้ตัวเลข
+    # อ้างอิงเป็นชื่อไฟล์เอง ต่างจากแอปอื่นที่ filename เป็น UUID/timestamp สุ่ม
+    # และ bank_name บนสลิป K+ หลายไฟล์ OCR ได้ไม่ชัวร์ (ไม่มี label ธนาคารตรงๆ)
+    stem = Path(filename).stem if filename else ""
+    if re.match(r"^016\d{6,}", stem):
         return "K+"
     return "unknown"
 
 
-def extract_record(record: dict) -> dict:
+def extract_record(record: dict, doc_type: str = "bank_slip") -> dict:
     fields = unwrap(record)
     filename = fields.get("filename") or record.get("filename") or "UNKNOWN"
 
     year, month, day, datetime_issue = resolve_datetime(fields)
+
+    if doc_type == "stock_confirmation":
+        # ocr/parse_stock.py คืน dict คนละรูปร่างจาก bank slip parser --
+        # map เฉพาะ field ที่ความหมายตรงกันเข้าคอลัมน์ generic ที่มีอยู่แล้ว
+        # ส่วนที่เหลือ (symbol/exchange/order_type ฯลฯ) อยู่ใน raw_json เท่านั้น
+        amount = fields.get("amount_thb")
+        try:
+            amount = float(str(amount).replace(",", "")) if amount is not None else None
+        except (TypeError, ValueError):
+            amount = None
+
+        row = {
+            "filename": filename,
+            "bank_name": None,
+            "amount": amount,
+            "currency": "THB",
+            "sender_name": None,
+            "sender_account": None,
+            "recipient_name": None,
+            "recipient_account": None,
+            "transaction_id": fields.get("order_id"),
+            "datetime_raw": fields.get("datetime_raw"),
+            "datetime_year": year,
+            "datetime_month": month,
+            "datetime_day": day,
+            "bank_name_issue": "not applicable for stock_confirmation",
+            "amount_issue": fields.get("amount_thb_issue"),
+            "sender_name_issue": "not applicable for stock_confirmation",
+            "sender_account_issue": "not applicable for stock_confirmation",
+            "recipient_name_issue": "not applicable for stock_confirmation",
+            "recipient_account_issue": "not applicable for stock_confirmation",
+            "transaction_id_issue": fields.get("order_id_issue"),
+            "datetime_issue": fields.get("datetime_issue") or "stock parser ยังไม่ดึงวันที่ (backlog)",
+            "source_app": guess_source_app(filename, None),
+            "doc_type": doc_type,
+            "raw_json": json.dumps(fields, ensure_ascii=False),
+        }
+        return row
 
     amount = fields.get("amount")
     try:
@@ -175,6 +221,7 @@ def extract_record(record: dict) -> dict:
         "transaction_id_issue": fields.get("transaction_id_issue"),
         "datetime_issue": fields.get("datetime_issue") or datetime_issue,
         "source_app": guess_source_app(filename, fields.get("bank_name")),
+        "doc_type": doc_type,
         "raw_json": json.dumps(fields, ensure_ascii=False),
     }
     return row
@@ -187,14 +234,14 @@ INSERT INTO slips (
     transaction_id, datetime_raw, datetime_year, datetime_month, datetime_day,
     bank_name_issue, amount_issue, sender_name_issue, sender_account_issue,
     recipient_name_issue, recipient_account_issue, transaction_id_issue, datetime_issue,
-    source_app, raw_json, updated_at
+    source_app, doc_type, raw_json, updated_at
 ) VALUES (
     :filename, :bank_name, :amount, :currency,
     :sender_name, :sender_account, :recipient_name, :recipient_account,
     :transaction_id, :datetime_raw, :datetime_year, :datetime_month, :datetime_day,
     :bank_name_issue, :amount_issue, :sender_name_issue, :sender_account_issue,
     :recipient_name_issue, :recipient_account_issue, :transaction_id_issue, :datetime_issue,
-    :source_app, :raw_json, CURRENT_TIMESTAMP
+    :source_app, :doc_type, :raw_json, CURRENT_TIMESTAMP
 )
 ON CONFLICT(filename) DO UPDATE SET
     bank_name=excluded.bank_name, amount=excluded.amount, currency=excluded.currency,
@@ -206,15 +253,15 @@ ON CONFLICT(filename) DO UPDATE SET
     sender_name_issue=excluded.sender_name_issue, sender_account_issue=excluded.sender_account_issue,
     recipient_name_issue=excluded.recipient_name_issue, recipient_account_issue=excluded.recipient_account_issue,
     transaction_id_issue=excluded.transaction_id_issue, datetime_issue=excluded.datetime_issue,
-    source_app=excluded.source_app, raw_json=excluded.raw_json, updated_at=CURRENT_TIMESTAMP;
+    source_app=excluded.source_app, doc_type=excluded.doc_type, raw_json=excluded.raw_json, updated_at=CURRENT_TIMESTAMP;
 """
 
-def save_record(record: dict, db_path: str = DB_PATH) -> dict:
+def save_record(record: dict, doc_type: str = "bank_slip", db_path: str = DB_PATH) -> dict:
     """
     บันทึก record เดียว (เช่น จาก API /save-slip) ลง SQLite
     reuse extract_record()/UPSERT_SQL เดียวกับ batch import เพื่อไม่ให้ logic ซ้ำซ้อน/ไม่ตรงกัน
     """
-    row = extract_record(record)
+    row = extract_record(record, doc_type=doc_type)
     conn = sqlite3.connect(db_path)
     conn.execute(UPSERT_SQL, row)
     conn.commit()

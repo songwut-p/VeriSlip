@@ -43,7 +43,7 @@ ALLOWED_COLUMNS = {
     "transaction_id", "datetime_raw", "datetime_year", "datetime_month", "datetime_day",
     "bank_name_issue", "amount_issue", "sender_name_issue", "sender_account_issue",
     "recipient_name_issue", "recipient_account_issue", "transaction_id_issue", "datetime_issue",
-    "source_app", "raw_json", "created_at", "updated_at",
+    "source_app", "doc_type", "raw_json", "created_at", "updated_at",
 }
 
 FORBIDDEN_KEYWORDS = [
@@ -171,7 +171,7 @@ def intent_total_by_month(question: str):
         return None
     year, month = my
     sql = ("SELECT SUM(amount) AS total, COUNT(*) AS count "
-           "FROM slips WHERE datetime_year = ? AND datetime_month = ?")
+           "FROM slips WHERE datetime_year = ? AND datetime_month = ? AND doc_type = 'bank_slip'")
     rows = run_readonly_query(sql, (year, month))
     return sql, rows
 
@@ -208,17 +208,17 @@ def intent_min_transaction(question: str):
 def intent_count_total(question: str):
     if not any(kw in question for kw in ["กี่รายการ", "กี่ใบ", "จำนวนทั้งหมด"]):
         return None
-    sql = "SELECT COUNT(*) AS count FROM slips"
+    sql = "SELECT COUNT(*) AS count FROM slips WHERE doc_type = 'bank_slip'"
     rows = run_readonly_query(sql)
     return sql, rows
 
 
 def intent_total_all(question: str):
     if _resolve_month_year(question) is not None:
-        return None  # มีเดือนระบุ ให้ intent_total_by_month จัดการแทน
+        return None
     if not any(kw in question for kw in TOTAL_KEYWORDS):
         return None
-    sql = "SELECT SUM(amount) AS total, COUNT(*) AS count FROM slips"
+    sql = "SELECT SUM(amount) AS total, COUNT(*) AS count FROM slips WHERE doc_type = 'bank_slip'"
     rows = run_readonly_query(sql)
     return sql, rows
 
@@ -268,7 +268,9 @@ SCHEMA_PROMPT = """คุณคือระบบแปลงคำถามภ�
   filename, bank_name, amount (REAL), currency,
   sender_name, sender_account, recipient_name, recipient_account,
   transaction_id, datetime_raw, datetime_year (INT), datetime_month (INT), datetime_day (INT),
-  source_app (K+/Make/Dime/TrueMoney/unknown)
+  source_app (K+/Make/Dime/TrueMoney/unknown),
+  doc_type (bank_slip/stock_confirmation) -- ถ้าคำถามพูดถึง "โอนเงิน" ให้กรอง doc_type='bank_slip'
+  เสมอ ถ้าพูดถึง "หุ้น"/"ซื้อขาย" ให้กรอง doc_type='stock_confirmation'
 
 กฎ:
 - ตอบกลับเป็น SQL query เดียวเท่านั้น ห้ามมีคำอธิบายอื่นปน ห้ามใช้ ```

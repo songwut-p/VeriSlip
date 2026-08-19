@@ -10,7 +10,8 @@ st.title("AI Document Assistant")
 def call_api(method: str, path: str, spinner_text: str, **kwargs):
     try:
         with st.spinner(spinner_text):
-            resp = requests.post(f"{API_BASE}{path}", timeout=120, **kwargs)
+            fn = requests.get if method == "GET" else requests.post
+            resp = fn(f"{API_BASE}{path}", timeout=120, **kwargs)
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.ConnectionError:
@@ -28,7 +29,7 @@ def call_api(method: str, path: str, spinner_text: str, **kwargs):
     return None
 
 
-page = st.sidebar.radio("เมนู", ["Upload Slip", "Ask"])
+page = st.sidebar.radio("เมนู", ["Upload Slip", "Ask", "Dashboard"])
 
 if page == "Upload Slip":
     st.header("อัปโหลดสลิป")
@@ -48,6 +49,7 @@ if page == "Upload Slip":
         if st.button("บันทึกลงฐานข้อมูล"):
             payload = {
                 "filename": st.session_state["last_upload"]["filename"],
+                "doc_type": st.session_state["last_upload"]["doc_type"],
                 "parsed": st.session_state["last_upload"]["parsed"],
             }
             save_result = call_api(
@@ -70,3 +72,60 @@ elif page == "Ask":
         )
         if result is not None:
             st.json(result)
+
+elif page == "Dashboard":
+    st.header("แดชบอร์ดสรุปข้อมูล")
+
+    data = call_api("GET", "/dashboard/summary", spinner_text="กำลังโหลดข้อมูลแดชบอร์ด...")
+
+    if data is not None:
+        summary = data["summary"]
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("เอกสารทั้งหมด", summary["total"])
+        col2.metric("ครบถ้วน", summary["complete"])
+        col3.metric("มีปัญหาบางส่วน", summary["has_issue"])
+
+        st.subheader("แยกตามประเภทเอกสาร")
+        st.json(summary["by_doc_type"])
+
+        st.subheader("ยอดรวมตามแอป (เฉพาะสลิปโอนเงิน)")
+        totals_app = data["totals_by_app_bank_slip"]
+        if totals_app:
+            st.bar_chart(
+                {r["source_app"]: r["total_amount"] for r in totals_app}
+            )
+            st.table(totals_app)
+        else:
+            st.info("ยังไม่มีข้อมูลสลิปโอนเงิน")
+
+        st.subheader("แนวโน้มรายเดือน (สลิปโอนเงิน)")
+        trend = data["trend_by_month_bank_slip"]
+        if trend:
+            st.line_chart(
+                {f"{r['year']}-{r['month']:02d}": r["total_amount"] for r in trend}
+            )
+            st.table(trend)
+        else:
+            st.info("ยังไม่มีข้อมูลแนวโน้ม")
+
+        st.subheader("สรุปการซื้อหุ้น (ตาม symbol)")
+        stock = data["stock_summary"]
+        if stock:
+            st.table(stock)
+        else:
+            st.info("ยังไม่มีข้อมูลการซื้อหุ้น")
+
+        st.subheader("รายการล่าสุด")
+        recent = data["recent_slips"]
+        if recent:
+            for r in recent:
+                icon = "⚠️" if r["has_issue"] else "✅"
+                if r["doc_type"] == "stock_confirmation":
+                    label = f"{r['source_app']} stock order"
+                else:
+                    label = r["recipient_name"] or r["sender_name"] or "ไม่ทราบชื่อ"
+                amount_text = f"{r['amount']:.2f} {r['currency']}" if r["amount"] is not None else "ไม่ทราบยอด"
+                st.write(f"{icon} **{r['filename']}** ({r['doc_type']}, {r['source_app']}) — {label} — {amount_text}")
+        else:
+            st.info("ยังไม่มีรายการ")
