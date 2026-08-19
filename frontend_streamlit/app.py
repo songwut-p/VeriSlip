@@ -43,7 +43,35 @@ if page == "Upload Slip":
         )
         if result is not None:
             st.session_state["last_upload"] = result
-            st.json(result)
+
+            doc_type_labels = {
+                "bank_slip": "สลิปโอนเงิน",
+                "stock_confirmation": "ใบยืนยันซื้อหุ้น",
+            }
+            label = doc_type_labels.get(result["doc_type"], result["doc_type"])
+            st.success(f"อ่านไฟล์สำเร็จ — ตรวจพบว่าเป็น: **{label}**")
+
+            parsed = result.get("parsed", {})
+            # field ที่เป็น metadata ภายใน (nested dict) ไม่ใช่ค่าที่คนอ่านง่าย -- ซ่อนไว้ debug
+            INTERNAL_FIELDS = {"datetime_parsed", "extraction_source"}
+            display_fields = {
+                k: v for k, v in parsed.items()
+                if not k.endswith("_issue") and k not in INTERNAL_FIELDS
+            }
+            if display_fields:
+                st.table(
+                    [{"ฟิลด์": k, "ค่าที่อ่านได้": v if v is not None else "—"}
+                     for k, v in display_fields.items()]
+                )
+
+            issue_fields = {k: v for k, v in parsed.items() if k.endswith("_issue") and v}
+            if issue_fields:
+                with st.expander(f"⚠️ พบข้อมูลไม่ครบ {len(issue_fields)} จุด"):
+                    for k, v in issue_fields.items():
+                        st.write(f"- **{k}**: {v}")
+
+            with st.expander("ดูข้อมูลดิบ (สำหรับ debug)"):
+                st.json(result)
 
     if "last_upload" in st.session_state:
         if st.button("บันทึกลงฐานข้อมูล"):
@@ -58,8 +86,13 @@ if page == "Upload Slip":
                 json=payload,
             )
             if save_result is not None:
-                st.success("บันทึกสำเร็จ")
-                st.json(save_result)
+                row = save_result.get("db_row", {})
+                st.success(f"บันทึกสำเร็จ — {row.get('filename', '')}")
+                col1, col2 = st.columns(2)
+                col1.metric("ยอดเงิน", f"{row['amount']:,.2f} {row.get('currency') or ''}" if row.get("amount") is not None else "ไม่ทราบยอด")
+                col2.metric("ประเภทเอกสาร", "สลิปโอนเงิน" if row.get("doc_type") == "bank_slip" else "ใบยืนยันซื้อหุ้น")
+                with st.expander("ดูข้อมูลดิบ (สำหรับ debug)"):
+                    st.json(save_result)
 
 elif page == "Ask":
     st.header("ถามคำถามเกี่ยวกับสลิป")
@@ -71,7 +104,37 @@ elif page == "Ask":
             json={"question": question},
         )
         if result is not None:
-            st.json(result)
+            mode = result.get("mode")
+
+            if mode in ("pattern", "llm_sql"):
+                rows = result.get("rows", [])
+                if rows:
+                    st.table(rows)
+                else:
+                    st.info("ไม่พบข้อมูลที่ตรงกับคำถาม")
+                with st.expander("ดู SQL ที่ใช้ค้นหา (สำหรับ debug)"):
+                    st.code(result.get("sql", ""), language="sql")
+
+            elif mode == "semantic":
+                matches = result.get("matches", [])
+                for m in matches:
+                    st.write(f"📄 **{m['filename']}** — {m['document']}")
+
+            elif mode == "no_confident_match":
+                st.info("ไม่พบสลิปที่ตรงกับคำถามนี้อย่างมั่นใจ")
+
+            elif mode == "no_match":
+                st.warning("ไม่เข้าใจคำถามนี้ ลองถามในรูปแบบอื่นดูครับ")
+
+            elif mode == "rejected":
+                st.error("ไม่สามารถตอบคำถามนี้ได้ (คำถามอาจไม่ปลอดภัย)")
+
+            elif mode == "sql_error":
+                st.error("เกิดข้อผิดพลาดขณะค้นหาข้อมูล")
+
+            else:
+                with st.expander("ผลลัพธ์ดิบ (สำหรับ debug)"):
+                    st.json(result)
 
 elif page == "Dashboard":
     st.header("แดชบอร์ดสรุปข้อมูล")
@@ -87,7 +150,14 @@ elif page == "Dashboard":
         col3.metric("มีปัญหาบางส่วน", summary["has_issue"])
 
         st.subheader("แยกตามประเภทเอกสาร")
-        st.json(summary["by_doc_type"])
+        doc_type_labels = {
+            "bank_slip": "สลิปโอนเงิน",
+            "stock_confirmation": "ใบยืนยันซื้อหุ้น",
+        }
+        by_doc_type = summary["by_doc_type"]
+        cols = st.columns(len(by_doc_type)) if by_doc_type else []
+        for col, (doc_type, count) in zip(cols, by_doc_type.items()):
+            col.metric(doc_type_labels.get(doc_type, doc_type), count)
 
         st.subheader("ยอดรวมตามแอป (เฉพาะสลิปโอนเงิน)")
         totals_app = data["totals_by_app_bank_slip"]
