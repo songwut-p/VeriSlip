@@ -7,12 +7,13 @@ Phase 2 - Step 1: สร้าง SQLite database + schema สำหรับเ
 
 import sqlite3
 
-DB_PATH = "slips.db"
+DB_PATH = "db/slips.db"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS slips (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    filename            TEXT UNIQUE NOT NULL,
+    filename            TEXT NOT NULL,
+    user_id             TEXT NOT NULL,
 
     bank_name           TEXT,
     amount              REAL,
@@ -42,14 +43,21 @@ CREATE TABLE IF NOT EXISTS slips (
     datetime_issue             TEXT,
 
     source_app          TEXT,   -- K+, Make, Dime, TrueMoney (เผื่อ query แยกตามแอป)
+    doc_type             TEXT,   -- bank_slip / stock_confirmation (Phase 4 Item 1)
     raw_json             TEXT,   -- เก็บ record เดิมทั้งก้อนไว้เผื่อ debug/ย้อนดู field ที่ไม่ได้ map ไว้
 
     created_at           TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at           TEXT DEFAULT CURRENT_TIMESTAMP
+    updated_at           TEXT DEFAULT CURRENT_TIMESTAMP,
+
+    -- filename ไม่ unique ทั้งตารางอีกต่อไป (คนละ user อัปโหลดไฟล์ชื่อซ้ำกันได้ เช่น
+    -- IMG_001.jpg จากมือถือ) unique จริงคือ (filename, user_id) คู่กัน
+    UNIQUE(filename, user_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_slips_datetime ON slips (datetime_year, datetime_month);
 CREATE INDEX IF NOT EXISTS idx_slips_source_app ON slips (source_app);
+CREATE INDEX IF NOT EXISTS idx_slips_user_id ON slips (user_id);
+CREATE INDEX IF NOT EXISTS idx_slips_doc_type ON slips (doc_type);
 """
 
 def main():
@@ -61,3 +69,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    

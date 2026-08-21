@@ -2,7 +2,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 from pytesseract import TesseractError
 from backend.schemas import AskRequest, SaveSlipRequest
 from ocr.parse_slip import ocr_image_to_text, hybrid_parse_slip_text
@@ -29,13 +29,13 @@ def health():
     return {"status": "ok"}
 
 @app.get("/dashboard/summary")
-def dashboard_summary():
+def dashboard_summary(user_id: str):
     return {
-        "summary": get_summary_stats(),
-        "totals_by_app_bank_slip": get_totals_by_app("bank_slip"),
-        "trend_by_month_bank_slip": get_trend_by_month("bank_slip"),
-        "stock_summary": get_stock_summary(),
-        "recent_slips": get_recent_slips(limit=10),
+        "summary": get_summary_stats(user_id),
+        "totals_by_app_bank_slip": get_totals_by_app(user_id, "bank_slip"),
+        "trend_by_month_bank_slip": get_trend_by_month(user_id, "bank_slip"),
+        "stock_summary": get_stock_summary(user_id),
+        "recent_slips": get_recent_slips(user_id, limit=10),
     }
 
 @app.post("/upload-slip")
@@ -69,7 +69,7 @@ async def upload_slip(file: UploadFile = File(...)):
 @app.post("/save-slip")
 async def save_slip(req: SaveSlipRequest):
     record = {"filename": req.filename, **req.parsed}
-    row = save_record(record, doc_type=req.doc_type)
+    row = save_record(record, doc_type=req.doc_type, user_id=req.user_id)
     doc_text = index_row(row)
     return {
         "filename": row["filename"],
@@ -83,6 +83,7 @@ async def save_slip(req: SaveSlipRequest):
 async def ask(req: AskRequest):
     result = answer_question(
         req.question,
+        req.user_id,
         llm_call_fn=call_ollama_for_sql,
         semantic_search_fn=semantic_search,
     )

@@ -77,19 +77,23 @@ def _has_issue_case_sql() -> str:
     """
 
 
-def get_summary_stats() -> dict[str, Any]:
+def get_summary_stats(user_id: str) -> dict[str, Any]:
     """Overall counts: total docs, complete vs has-issue (doc_type-aware), by doc_type."""
     with _connect() as conn:
-        total = conn.execute("SELECT COUNT(*) AS n FROM slips").fetchone()["n"]
+        total = conn.execute(
+            "SELECT COUNT(*) AS n FROM slips WHERE user_id = ?", (user_id,)
+        ).fetchone()["n"]
 
         by_doc_type = conn.execute(
-            "SELECT doc_type, COUNT(*) AS n FROM slips GROUP BY doc_type"
+            "SELECT doc_type, COUNT(*) AS n FROM slips WHERE user_id = ? GROUP BY doc_type",
+            (user_id,),
         ).fetchall()
 
         has_issue_case = _has_issue_case_sql()
         issue_counts = conn.execute(
             f"SELECT doc_type, SUM({has_issue_case}) AS n_issue, COUNT(*) AS n_total "
-            f"FROM slips GROUP BY doc_type"
+            f"FROM slips WHERE user_id = ? GROUP BY doc_type",
+            (user_id,),
         ).fetchall()
 
         total_issue = sum(r["n_issue"] or 0 for r in issue_counts)
@@ -106,7 +110,7 @@ def get_summary_stats() -> dict[str, Any]:
         }
 
 
-def get_totals_by_app(doc_type: str = "bank_slip") -> list[dict[str, Any]]:
+def get_totals_by_app(user_id: str, doc_type: str = "bank_slip") -> list[dict[str, Any]]:
     """
     Sum of amounts grouped by source_app, complete-amount rows only.
     Uses source_app (K+/Make/Dime/TrueMoney/unknown) instead of bank_name --
@@ -121,16 +125,16 @@ def get_totals_by_app(doc_type: str = "bank_slip") -> list[dict[str, Any]]:
             """
             SELECT source_app, COUNT(*) AS count, SUM(amount) AS total_amount
             FROM slips
-            WHERE doc_type = ? AND amount_issue IS NULL
+            WHERE doc_type = ? AND amount_issue IS NULL AND user_id = ?
             GROUP BY source_app
             ORDER BY total_amount DESC
             """,
-            (doc_type,),
+            (doc_type, user_id),
         ).fetchall()
         return [dict(r) for r in rows]
 
 
-def get_trend_by_month(doc_type: str = "bank_slip") -> list[dict[str, Any]]:
+def get_trend_by_month(user_id: str, doc_type: str = "bank_slip") -> list[dict[str, Any]]:
     """
     Doc count + total amount per (year, month), for a time-series chart.
     doc_type is required (not optional/'all') to avoid silently mixing THB
@@ -144,17 +148,17 @@ def get_trend_by_month(doc_type: str = "bank_slip") -> list[dict[str, Any]]:
                    COUNT(*) AS count,
                    SUM(amount) AS total_amount
             FROM slips
-            WHERE doc_type = ? AND datetime_issue IS NULL
+            WHERE doc_type = ? AND datetime_issue IS NULL AND user_id = ?
               AND datetime_year IS NOT NULL AND datetime_month IS NOT NULL
             GROUP BY datetime_year, datetime_month
             ORDER BY datetime_year, datetime_month
             """,
-            (doc_type,),
+            (doc_type, user_id),
         ).fetchall()
         return [dict(r) for r in rows]
 
 
-def get_recent_slips(limit: int = 20) -> list[dict[str, Any]]:
+def get_recent_slips(user_id: str, limit: int = 20) -> list[dict[str, Any]]:
     """Most recent docs (both types) with extraction status, for a table view."""
     has_issue_case = _has_issue_case_sql()
     with _connect() as conn:
@@ -164,19 +168,25 @@ def get_recent_slips(limit: int = 20) -> list[dict[str, Any]]:
                    amount, currency, bank_name, sender_name, recipient_name, source_app,
                    ({has_issue_case}) AS has_issue
             FROM slips
+            WHERE user_id = ?
             ORDER BY created_at DESC
             LIMIT ?
             """,
-            (limit,),
+            (user_id, limit),
         ).fetchall()
         return [dict(r) for r in rows]
 
 
-def get_activity_by_account(account_number: str) -> dict[str, Any]:
+def get_activity_by_account(account_number: str, user_id: str) -> dict[str, Any]:
     """
     All bank_slip activity where the given account appears as sender OR recipient.
     Keyed by account number (not name) -- stock rows have no account columns
     populated so they never show up here, which is correct (Item 1/2 scope).
+
+    user_id filter here matters MORE than on the filename-keyed queries above:
+    without it, one user could discover another user's counterparties (who they
+    sent money to / received money from) purely via account number, without ever
+    knowing the other user's filenames.
     """
     with _connect() as conn:
         sent = conn.execute(
@@ -184,10 +194,10 @@ def get_activity_by_account(account_number: str) -> dict[str, Any]:
             SELECT id, filename, datetime_year, datetime_month, datetime_day,
                    amount, recipient_name, recipient_account
             FROM slips
-            WHERE doc_type = 'bank_slip' AND sender_account = ?
+            WHERE doc_type = 'bank_slip' AND sender_account = ? AND user_id = ?
             ORDER BY datetime_year DESC, datetime_month DESC, datetime_day DESC
             """,
-            (account_number,),
+            (account_number, user_id),
         ).fetchall()
 
         received = conn.execute(
@@ -195,10 +205,10 @@ def get_activity_by_account(account_number: str) -> dict[str, Any]:
             SELECT id, filename, datetime_year, datetime_month, datetime_day,
                    amount, sender_name, sender_account
             FROM slips
-            WHERE doc_type = 'bank_slip' AND recipient_account = ?
+            WHERE doc_type = 'bank_slip' AND recipient_account = ? AND user_id = ?
             ORDER BY datetime_year DESC, datetime_month DESC, datetime_day DESC
             """,
-            (account_number,),
+            (account_number, user_id),
         ).fetchall()
 
         return {
@@ -208,7 +218,7 @@ def get_activity_by_account(account_number: str) -> dict[str, Any]:
         }
 
 
-def list_known_accounts() -> list[dict[str, Any]]:
+def list_known_accounts(user_id: str) -> list[dict[str, Any]]:
     """
     Distinct account numbers seen as sender or recipient (bank_slip only), with a
     best-effort display name -- used to populate a person-picker without trusting
@@ -218,11 +228,12 @@ def list_known_accounts() -> list[dict[str, Any]]:
         rows = conn.execute(
             """
             SELECT sender_account AS account_number, sender_name AS display_name
-            FROM slips WHERE doc_type = 'bank_slip' AND sender_account IS NOT NULL
+            FROM slips WHERE doc_type = 'bank_slip' AND sender_account IS NOT NULL AND user_id = ?
             UNION
             SELECT recipient_account AS account_number, recipient_name AS display_name
-            FROM slips WHERE doc_type = 'bank_slip' AND recipient_account IS NOT NULL
-            """
+            FROM slips WHERE doc_type = 'bank_slip' AND recipient_account IS NOT NULL AND user_id = ?
+            """,
+            (user_id, user_id),
         ).fetchall()
         seen: dict[str, str | None] = {}
         for r in rows:
@@ -232,7 +243,7 @@ def list_known_accounts() -> list[dict[str, Any]]:
         return [{"account_number": k, "display_name": v} for k, v in seen.items()]
 
 
-def get_stock_summary() -> list[dict[str, Any]]:
+def get_stock_summary(user_id: str) -> list[dict[str, Any]]:
     """
     Per-symbol rollup for stock_confirmation rows. symbol/exchange/order_type
     have no dedicated columns (see extract_record()) -- they live in raw_json,
@@ -243,8 +254,9 @@ def get_stock_summary() -> list[dict[str, Any]]:
             """
             SELECT filename, amount, currency, transaction_id, source_app, raw_json
             FROM slips
-            WHERE doc_type = 'stock_confirmation'
-            """
+            WHERE doc_type = 'stock_confirmation' AND user_id = ?
+            """,
+            (user_id,),
         ).fetchall()
 
     by_symbol: dict[str, dict[str, Any]] = {}

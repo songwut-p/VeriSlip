@@ -125,7 +125,9 @@ def llm_extract_fields(ocr_text: str, missing_fields: list, model: str = MODEL_N
         response = ollama.chat(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            options={"temperature": 0.1},  # ลด randomness เพราะเป็นงาน extraction ไม่ใช่ creative
+            options={"temperature": 0.0},  # extraction ต้องการ deterministic ไม่ใช่ creative
+                                            # (0.1 ยังพอเห็นผลแกว่งได้ในเคสกำกวม เช่น merchant-recipient
+                                            # ไม่มี label ชัดเจน - ดูปัญหาจริงที่เจอ 20 Aug 2026)
             think=False,  # ป้องกันบั๊กเดิม (qwen3 thinking-mode กินโควตา token จนตอบว่างเปล่า - เจอมาแล้วใน rag_qa.py/llm_sql.py)
         )
         raw_text = response["message"]["content"]

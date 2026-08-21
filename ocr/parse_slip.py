@@ -316,7 +316,7 @@ def parse_datetime_components(raw_str: str) -> dict:
 # + ตรวจจับว่า "เจอ label แต่ parse ไม่ได้" แทนการคืน None แบบเงียบๆ)
 # ============================================================
 
-ACCOUNT_NUMBER_PATTERN = r"[xX%]{1,4}-[xX%]{1,2}-[xX%]{0,2}\d{2,6}-[xX%\d]{1,2}"
+ACCOUNT_NUMBER_PATTERN = r"[xX%]{1,4}-[xX%]{1,2}-[xX%]{0,6}\d{2,6}-[xX%\d]{1,2}"
 ACCOUNT_LABEL_PATTERN = r"(?:เลขที่บัญชี|From Account|To Account)"
 
 # PromptPay ID shape (e.g. "xxx-xxx-4906") -- distinct from a bank account
@@ -398,6 +398,29 @@ def parse_account_numbers(text: str):
     return results
 
 
+# Bare Thai/English bank display names that sometimes appear on their own
+# line with NO "ธ." prefix at all (e.g. Krungthai app slips: the line reads
+# just "กรุงไทย" / "ไทยพาณิชย์", not "ธ.กรุงไทย") -- found 20 Aug 2026 testing
+# a friend's Krungthai slip. Without this list, the positional name-fallback
+# below mistakes the bank-name line itself for the person's name, since it's
+# the nearest non-blank line above the account number.
+BANK_NAME_TOKENS = frozenset({
+    "กรุงไทย", "ไทยพาณิชย์", "กสิกรไทย", "กรุงเทพ", "กรุงศรี", "กรุงศรีอยุธยา",
+    "ทหารไทยธนชาต", "ธนชาต", "ออมสิน", "ธนาคารออมสิน", "อาคารสงเคราะห์",
+    "ยูโอบี", "ซีไอเอ็มบี", "แลนด์ แอนด์ เฮ้าส์", "เกียรตินาคินภัทร",
+  "ไอซีบีซี", "ทิสโก้", "ธ.ก.ส.",
+    "krungthai", "scb", "kbank", "kasikorn", "bangkok bank", "bbl",
+    "krungsri", "tmb", "ttb", "gsb", "uob", "cimb", "lh bank", "kkp", "tisco",
+})
+
+
+def _is_bare_bank_name_line(candidate: str) -> bool:
+    """True if a line is JUST a bank's display name with no "ธ."/"ธนาคาร"
+    prefix and nothing else on the line -- see BANK_NAME_TOKENS above."""
+    stripped = re.sub(r"^(?:ธนาคาร|ธ\.)\s*", "", candidate.strip())
+    return stripped.lower() in BANK_NAME_TOKENS
+
+
 def parse_names(text: str):
     """หาชื่อผู้โอน/ผู้รับ
 
@@ -428,7 +451,22 @@ def parse_names(text: str):
             short lines (< min_len chars) since decorative watermark
             icons (flowers, hearts, etc.) sometimes OCR into a stray
             1-2 char garbage line sitting directly above the real name
-            -- found 18 Aug 2026 on a mother's-day-themed K+ slip."""
+            -- found 18 Aug 2026 on a mother's-day-themed K+ slip.
+
+            If the line found is a parenthetical qualifier on its own
+            (e.g. "(ประเทศไทย)" following a merchant name on the line
+            before it, split across two lines by OCR) it is merged with
+            the next usable line further back -- found 20 Aug 2026 on a
+            Make-app slip where a merchant name ("แกรีบแท็กซี่") and its
+            country qualifier ("(ประเทศไทย)") land on separate lines
+            with a blank line between them.
+
+            If the line found is a BARE bank display name (no "ธ." prefix
+            at all, e.g. Krungthai slips just print "กรุงไทย" on its own
+            line) it is skipped entirely (not merged -- a bank name isn't
+            part of the person's name) and the walk continues further back
+            for the actual name line -- found 20 Aug 2026 testing a
+            friend's Krungthai slip."""
             steps = 0
             for j in range(idx - 1, -1, -1):
                 steps += 1
@@ -438,6 +476,20 @@ def parse_names(text: str):
                 if not candidate or len(candidate) < min_len:
                     continue
                 candidate = re.sub(r"^[a-zA-Z]{1,3}\s+(?=\S)", "", candidate)
+                if _is_bare_bank_name_line(candidate):
+                    continue
+                if re.fullmatch(r"\(.*\)", candidate):
+                    prev_steps = 0
+                    for k in range(j - 1, -1, -1):
+                        prev_steps += 1
+                        if prev_steps > max_lookback:
+                            break
+                        prev_candidate = lines[k].strip()
+                        if not prev_candidate or len(prev_candidate) < min_len:
+                            continue
+                        prev_candidate = re.sub(r"^[a-zA-Z]{1,3}\s+(?=\S)", "", prev_candidate)
+                        candidate = f"{prev_candidate} {candidate}"
+                        break
                 return candidate
             return None
 
@@ -461,7 +513,10 @@ def parse_names(text: str):
         def _preceding_nonblank_from_offset(char_offset, min_len=3, max_lookback=5):
             """Same garbage-line-skipping logic as the bank-marker
             fallback above, but anchored on an account-number match's
-            character offset instead of a 'ธ.' line index."""
+            character offset instead of a 'ธ.' line index. Also merges
+            a trailing parenthetical qualifier line with the usable
+            line before it, and skips a bare bank-name-only line
+            (see _preceding_nonblank docstring for both)."""
             line_idx = text[:char_offset].count("\n")
             steps = 0
             for j in range(line_idx - 1, -1, -1):
@@ -472,6 +527,20 @@ def parse_names(text: str):
                 if not candidate or len(candidate) < min_len:
                     continue
                 candidate = re.sub(r"^[a-zA-Z]{1,3}\s+(?=\S)", "", candidate)
+                if _is_bare_bank_name_line(candidate):
+                    continue
+                if re.fullmatch(r"\(.*\)", candidate):
+                    prev_steps = 0
+                    for k in range(j - 1, -1, -1):
+                        prev_steps += 1
+                        if prev_steps > max_lookback:
+                            break
+                        prev_candidate = lines[k].strip()
+                        if not prev_candidate or len(prev_candidate) < min_len:
+                            continue
+                        prev_candidate = re.sub(r"^[a-zA-Z]{1,3}\s+(?=\S)", "", prev_candidate)
+                        candidate = f"{prev_candidate} {candidate}"
+                        break
                 return candidate
             return None
 
@@ -551,7 +620,7 @@ HYBRID_FALLBACK_FIELDS = [
 ]
 
 
-def hybrid_parse_slip_text(ocr_text: str, use_llm_fallback: bool = True, llm_model: str = "qwen2.5:7b") -> dict:
+def hybrid_parse_slip_text(ocr_text: str, use_llm_fallback: bool = True, llm_model: str = "qwen3:8b") -> dict:
     """
     เหมือน parse_slip_text() แต่เพิ่มขั้นตอน fallback: field ไหนที่ regex parse
     ไม่ได้ (เป็น None) จะส่ง OCR text ไปให้ local LLM (qwen2.5:7b ผ่าน Ollama)
@@ -676,3 +745,4 @@ if __name__ == "__main__":
         run_on_real_image(image_path, lang=lang)
     else:
         demo_with_hardcoded_text()
+        

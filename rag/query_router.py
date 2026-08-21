@@ -105,12 +105,31 @@ def validate_sql(raw_sql: str) -> str:
     return body
 
 
+def scope_sql_to_user(safe_sql: str, user_id: str) -> str:
+    """
+    บังคับ user_id filter เข้าไปใน SQL ที่ LLM generate (ผ่าน validate_sql() มาแล้ว) ก่อนรันจริง
+
+    สำคัญ: ห้าม append "AND user_id = ?" ต่อท้ายเฉยๆ เพราะถ้า SQL มี GROUP BY/aggregate
+    (SUM/COUNT) การ filter หลัง aggregate จะสายเกินไป — ผลรวมจะยังปนของ user อื่นมาก่อนกรอง
+    วิธีที่ถูกคือ rewrite "FROM slips" ให้เป็น subquery ที่ filter user_id ไว้ตั้งแต่ต้น
+    ก่อนที่ WHERE/GROUP BY ชั้นนอกจะได้เห็นข้อมูลเลย ทำได้เพราะ validate_sql() การันตีแล้วว่า
+    query อ้างอิงได้แค่ตาราง slips เท่านั้น (ไม่มี join ตารางอื่นให้ regex นี้พลาดเป้า)
+    """
+    scoped_source = "FROM (SELECT * FROM slips WHERE user_id = :__user_id) AS slips"
+    scoped_sql, n = re.subn(r"\bfrom\s+slips\b", scoped_source, safe_sql, count=1, flags=re.IGNORECASE)
+    if n == 0:
+        # ไม่น่าเกิดขึ้นเพราะ validate_sql() บังคับว่าต้องมีคำว่า "slips" อยู่แล้ว
+        # แต่ถ้าเกิดขึ้นจริง (เช่น รูปแบบ FROM แปลกที่ regex ไม่ match) ปฏิเสธดีกว่าปล่อยผ่านแบบไม่กรอง
+        raise UnsafeSQLError("ไม่สามารถ scope SQL เข้ากับ user_id ได้อย่างปลอดภัย")
+    return scoped_sql
+
+
 def _progress_handler():
     # sqlite3 progress handler: คืนค่า != 0 เพื่อยกเลิก query ถ้ารันนานผิดปกติ
     return 0
 
 
-def run_readonly_query(sql: str, params: tuple = ()):
+def run_readonly_query(sql: str, params=()):
     """รัน SQL แบบ read-only เท่านั้น ต่อให้ validator หลุดอะไรไป connection ก็เขียนอะไรไม่ได้"""
     uri = f"file:{DB_PATH}?mode=ro"
     conn = sqlite3.connect(uri, uri=True, timeout=5)
@@ -163,7 +182,7 @@ def _resolve_month_year(question: str):
     return None
 
 
-def intent_total_by_month(question: str):
+def intent_total_by_month(question: str, user_id: str):
     my = _resolve_month_year(question)
     if my is None:
         return None
@@ -171,55 +190,55 @@ def intent_total_by_month(question: str):
         return None
     year, month = my
     sql = ("SELECT SUM(amount) AS total, COUNT(*) AS count "
-           "FROM slips WHERE datetime_year = ? AND datetime_month = ? AND doc_type = 'bank_slip'")
-    rows = run_readonly_query(sql, (year, month))
+           "FROM slips WHERE datetime_year = ? AND datetime_month = ? AND doc_type = 'bank_slip' AND user_id = ?")
+    rows = run_readonly_query(sql, (year, month, user_id))
     return sql, rows
 
 
-def intent_count_by_app(question: str):
+def intent_count_by_app(question: str, user_id: str):
     if "แอป" not in question:
         return None
     if not any(kw in question for kw in ["แยก", "กี่", "ไหนบ้าง", "breakdown"]):
         return None
     sql = ("SELECT source_app, COUNT(*) AS count, SUM(amount) AS total "
-           "FROM slips GROUP BY source_app ORDER BY count DESC")
-    rows = run_readonly_query(sql)
+           "FROM slips WHERE user_id = ? GROUP BY source_app ORDER BY count DESC")
+    rows = run_readonly_query(sql, (user_id,))
     return sql, rows
 
 
-def intent_max_transaction(question: str):
+def intent_max_transaction(question: str, user_id: str):
     if not any(kw in question for kw in ["สูงสุด", "มากที่สุด", "แพงที่สุด"]):
         return None
     sql = ("SELECT filename, amount, datetime_raw, recipient_name "
-           "FROM slips ORDER BY amount DESC LIMIT 1")
-    rows = run_readonly_query(sql)
+           "FROM slips WHERE user_id = ? ORDER BY amount DESC LIMIT 1")
+    rows = run_readonly_query(sql, (user_id,))
     return sql, rows
 
 
-def intent_min_transaction(question: str):
+def intent_min_transaction(question: str, user_id: str):
     if not any(kw in question for kw in ["ต่ำสุด", "น้อยที่สุด"]):
         return None
     sql = ("SELECT filename, amount, datetime_raw, recipient_name "
-           "FROM slips ORDER BY amount ASC LIMIT 1")
-    rows = run_readonly_query(sql)
+           "FROM slips WHERE user_id = ? ORDER BY amount ASC LIMIT 1")
+    rows = run_readonly_query(sql, (user_id,))
     return sql, rows
 
 
-def intent_count_total(question: str):
+def intent_count_total(question: str, user_id: str):
     if not any(kw in question for kw in ["กี่รายการ", "กี่ใบ", "จำนวนทั้งหมด"]):
         return None
-    sql = "SELECT COUNT(*) AS count FROM slips WHERE doc_type = 'bank_slip'"
-    rows = run_readonly_query(sql)
+    sql = "SELECT COUNT(*) AS count FROM slips WHERE doc_type = 'bank_slip' AND user_id = ?"
+    rows = run_readonly_query(sql, (user_id,))
     return sql, rows
 
 
-def intent_total_all(question: str):
+def intent_total_all(question: str, user_id: str):
     if _resolve_month_year(question) is not None:
         return None
     if not any(kw in question for kw in TOTAL_KEYWORDS):
         return None
-    sql = "SELECT SUM(amount) AS total, COUNT(*) AS count FROM slips WHERE doc_type = 'bank_slip'"
-    rows = run_readonly_query(sql)
+    sql = "SELECT SUM(amount) AS total, COUNT(*) AS count FROM slips WHERE doc_type = 'bank_slip' AND user_id = ?"
+    rows = run_readonly_query(sql, (user_id,))
     return sql, rows
 
 
@@ -246,13 +265,13 @@ def _has_semantic_qualifier(question: str) -> bool:
     return any(kw in question for kw in SEMANTIC_QUALIFIER_KEYWORDS)
 
 
-def match_pattern(question: str):
+def match_pattern(question: str, user_id: str):
     if _has_semantic_qualifier(question):
         # มีเงื่อนไขกรองที่ pattern จัดการไม่ได้ (ต้องเป็น semantic search ผ่าน Chroma
         # หรืออย่างน้อยลองเป็น SQL LIKE ผ่าน LLM fallback) ไม่ให้ pattern เดาตอบ
         return None
     for intent_fn in INTENTS:
-        result = intent_fn(question)
+        result = intent_fn(question, user_id)
         if result is not None:
             sql, rows = result
             return {"mode": "pattern", "intent": intent_fn.__name__, "sql": sql, "rows": rows}
@@ -283,22 +302,25 @@ SCHEMA_PROMPT = """คุณคือระบบแปลงคำถามภ�
 SQL:"""
 
 
-def answer_question(question: str, llm_call_fn=None, semantic_search_fn=None):
+def answer_question(question: str, user_id: str, llm_call_fn=None, semantic_search_fn=None):
     """
     entry point หลัก: ลอง pattern ก่อน ถ้าคำถามมีเงื่อนไขเชิงความหมาย (เช่น "เกี่ยวกับร้านกาแฟ")
     ให้ลอง semantic search ก่อน (ถ้าเสียบ semantic_search_fn มา) เพราะเหมาะกับคำถามแบบนี้กว่า SQL
     ถ้ายังไม่ได้คำตอบที่มั่นใจ ค่อย fallback ไป LLM text-to-SQL (ถ้าเสียบ llm_call_fn มา)
 
+    user_id: บังคับกรองทุก path ให้เห็นเฉพาะข้อมูลของ user นี้ — รวมถึง LLM-SQL fallback
+             ซึ่ง LLM เองไม่รู้จัก user_id เลย (ไม่ได้อยู่ใน SCHEMA_PROMPT) เราเป็นคนกรองให้
+             หลัง SQL ผ่าน validator แล้วเสมอ ดู scope_sql_to_user()
     llm_call_fn: ฟังก์ชัน (prompt: str) -> str ที่เรียก local model (ดู llm_sql.py)
-    semantic_search_fn: ฟังก์ชัน (question: str) -> list[dict] ที่คืนผล semantic search
+    semantic_search_fn: ฟังก์ชัน (question: str, user_id: str) -> list[dict] ที่คืนผล semantic search
                          (ดู semantic_search.py's semantic_search())
     """
-    pattern_result = match_pattern(question)
+    pattern_result = match_pattern(question, user_id)
     if pattern_result is not None:
         return pattern_result
 
     if _has_semantic_qualifier(question) and semantic_search_fn is not None:
-        semantic_result = answer_semantic_question(question, semantic_search_fn)
+        semantic_result = answer_semantic_question(question, user_id, semantic_search_fn)
         if semantic_result["mode"] == "semantic":
             return semantic_result
         if llm_call_fn is None:
@@ -313,15 +335,16 @@ def answer_question(question: str, llm_call_fn=None, semantic_search_fn=None):
 
     try:
         safe_sql = validate_sql(raw_sql)
+        scoped_sql = scope_sql_to_user(safe_sql, user_id)
     except UnsafeSQLError as e:
         return {"mode": "rejected", "reason": str(e), "attempted_sql": raw_sql}
 
     try:
-        rows = run_readonly_query(safe_sql)
+        rows = run_readonly_query(scoped_sql, {"__user_id": user_id})
     except sqlite3.Error as e:
-        return {"mode": "sql_error", "sql": safe_sql, "error": str(e)}
+        return {"mode": "sql_error", "sql": scoped_sql, "error": str(e)}
 
-    return {"mode": "llm_sql", "sql": safe_sql, "rows": rows}
+    return {"mode": "llm_sql", "sql": scoped_sql, "rows": rows}
 
 
 # ----------------------------------------------------------------------------
@@ -354,12 +377,12 @@ def _confident_semantic_matches(matches: list) -> list:
     return confident
 
 
-def answer_semantic_question(question: str, semantic_search_fn):
+def answer_semantic_question(question: str, user_id: str, semantic_search_fn):
     """
-    เรียก semantic_search_fn(question) -> list[{"filename","document","distance","metadata"}]
+    เรียก semantic_search_fn(question, user_id) -> list[{"filename","document","distance","metadata"}]
     (เช่น semantic_search() จาก semantic_search.py) แล้วกรองด้วย confidence heuristic ก่อนตอบ
     """
-    all_matches = semantic_search_fn(question)
+    all_matches = semantic_search_fn(question, user_id=user_id)
     confident = _confident_semantic_matches(all_matches)
 
     if not confident:

@@ -35,6 +35,22 @@ FIELD_LABELS = {
 st.set_page_config(page_title="AI Document Assistant", page_icon="🧾")
 st.title("AI Document Assistant")
 
+# PoC เท่านั้น: user_id เป็นแค่ string ที่พิมพ์เอง ไม่มี auth/password จริง
+# ใช้เพื่อทดสอบว่าข้อมูลแยกกันถูกต้องตอนมีหลายคนใช้พร้อมกัน (ไม่ใช่ระบบความปลอดภัยจริง)
+if "user_id" not in st.session_state:
+    st.session_state["user_id"] = ""
+
+with st.sidebar:
+    st.session_state["user_id"] = st.text_input(
+        "ชื่อผู้ใช้ (สำหรับทดสอบ)", value=st.session_state["user_id"]
+    )
+
+if not st.session_state["user_id"]:
+    st.warning("กรุณาใส่ชื่อผู้ใช้ในแถบด้านซ้ายก่อนใช้งาน")
+    st.stop()
+
+user_id = st.session_state["user_id"]
+
 def call_api(method: str, path: str, spinner_text: str, **kwargs):
     try:
         with st.spinner(spinner_text):
@@ -103,6 +119,7 @@ if page == "Upload Slip":
                 "filename": st.session_state["last_upload"]["filename"],
                 "doc_type": st.session_state["last_upload"]["doc_type"],
                 "parsed": st.session_state["last_upload"]["parsed"],
+                "user_id": user_id,
             }
             save_result = call_api(
                 "POST", "/save-slip",
@@ -127,7 +144,7 @@ elif page == "Ask":
         result = call_api(
             "POST", "/ask",
             spinner_text="กำลังค้นหาคำตอบ (pattern → semantic → LLM-SQL)...",
-            json={"question": question},
+            json={"question": question, "user_id": user_id},
         )
         if result is not None:
             mode = result.get("mode")
@@ -162,7 +179,11 @@ elif page == "Ask":
 elif page == "Dashboard":
     st.header("แดชบอร์ดสรุปข้อมูล")
 
-    data = call_api("GET", "/dashboard/summary", spinner_text="กำลังโหลดข้อมูลแดชบอร์ด...")
+    data = call_api(
+        "GET", "/dashboard/summary",
+        spinner_text="กำลังโหลดข้อมูลแดชบอร์ด...",
+        params={"user_id": user_id},
+    )
 
     if data is not None:
         summary = data["summary"]

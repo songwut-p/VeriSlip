@@ -148,7 +148,7 @@ def guess_source_app(filename: str, bank_name: str) -> str:
     return "unknown"
 
 
-def extract_record(record: dict, doc_type: str = "bank_slip") -> dict:
+def extract_record(record: dict, doc_type: str = "bank_slip", user_id: str = "default") -> dict:
     fields = unwrap(record)
     filename = fields.get("filename") or record.get("filename") or "UNKNOWN"
 
@@ -166,6 +166,7 @@ def extract_record(record: dict, doc_type: str = "bank_slip") -> dict:
 
         row = {
             "filename": filename,
+            "user_id": user_id,
             "bank_name": None,
             "amount": amount,
             "currency": "THB",
@@ -200,6 +201,7 @@ def extract_record(record: dict, doc_type: str = "bank_slip") -> dict:
 
     row = {
         "filename": filename,
+        "user_id": user_id,
         "bank_name": fields.get("bank_name"),
         "amount": amount,
         "currency": fields.get("currency"),
@@ -229,21 +231,23 @@ def extract_record(record: dict, doc_type: str = "bank_slip") -> dict:
 
 UPSERT_SQL = """
 INSERT INTO slips (
-    filename, bank_name, amount, currency,
+    filename, user_id, bank_name, amount, currency,
     sender_name, sender_account, recipient_name, recipient_account,
     transaction_id, datetime_raw, datetime_year, datetime_month, datetime_day,
     bank_name_issue, amount_issue, sender_name_issue, sender_account_issue,
     recipient_name_issue, recipient_account_issue, transaction_id_issue, datetime_issue,
     source_app, doc_type, raw_json, updated_at
 ) VALUES (
-    :filename, :bank_name, :amount, :currency,
+    :filename, :user_id, :bank_name, :amount, :currency,
     :sender_name, :sender_account, :recipient_name, :recipient_account,
     :transaction_id, :datetime_raw, :datetime_year, :datetime_month, :datetime_day,
     :bank_name_issue, :amount_issue, :sender_name_issue, :sender_account_issue,
     :recipient_name_issue, :recipient_account_issue, :transaction_id_issue, :datetime_issue,
     :source_app, :doc_type, :raw_json, CURRENT_TIMESTAMP
 )
-ON CONFLICT(filename) DO UPDATE SET
+-- conflict target ต้องเป็น (filename, user_id) คู่กัน ไม่ใช่ filename เฉยๆ:
+-- ถ้าใช้ filename อย่างเดียว user คนละคนอัปโหลดไฟล์ชื่อซ้ำกันจะเขียนทับข้อมูลกันเงียบๆ
+ON CONFLICT(filename, user_id) DO UPDATE SET
     bank_name=excluded.bank_name, amount=excluded.amount, currency=excluded.currency,
     sender_name=excluded.sender_name, sender_account=excluded.sender_account,
     recipient_name=excluded.recipient_name, recipient_account=excluded.recipient_account,
@@ -256,12 +260,12 @@ ON CONFLICT(filename) DO UPDATE SET
     source_app=excluded.source_app, doc_type=excluded.doc_type, raw_json=excluded.raw_json, updated_at=CURRENT_TIMESTAMP;
 """
 
-def save_record(record: dict, doc_type: str = "bank_slip", db_path: str = DB_PATH) -> dict:
+def save_record(record: dict, doc_type: str = "bank_slip", user_id: str = "default", db_path: str = DB_PATH) -> dict:
     """
     บันทึก record เดียว (เช่น จาก API /save-slip) ลง SQLite
     reuse extract_record()/UPSERT_SQL เดียวกับ batch import เพื่อไม่ให้ logic ซ้ำซ้อน/ไม่ตรงกัน
     """
-    row = extract_record(record, doc_type=doc_type)
+    row = extract_record(record, doc_type=doc_type, user_id=user_id)
     conn = sqlite3.connect(db_path)
     conn.execute(UPSERT_SQL, row)
     conn.commit()

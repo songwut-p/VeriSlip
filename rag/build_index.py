@@ -100,12 +100,18 @@ def index_row(row: dict, chroma_path: str = CHROMA_PATH) -> str:
     doc_text = build_document_text(row)
     embedding = model.encode([f"passage: {doc_text}"], normalize_embeddings=True).tolist()
 
+    # id ต้องผูกกับ user_id ด้วย ไม่ใช่ filename เฉยๆ — คนละ user อัปโหลดไฟล์ชื่อซ้ำกันได้
+    # (เช่น IMG_001.jpg) ถ้าใช้ filename ตรงๆ เป็น id, embedding ของอีกคนจะถูกทับ
+    user_id = row.get("user_id") or "default"
+    chroma_id = f"{user_id}:{row['filename']}"
+
     collection.upsert(
-        ids=[row["filename"]],
+        ids=[chroma_id],
         embeddings=embedding,
         documents=[doc_text],
         metadatas=[{
             "filename": row["filename"],
+            "user_id": user_id,
             "amount": row.get("amount") or 0.0,
             "source_app": row.get("source_app") or "unknown",
             "datetime_year": row.get("datetime_year") or 0,
@@ -132,11 +138,13 @@ def main():
     ids, documents, metadatas = [], [], []
     for row in rows:
         doc_text = build_document_text(row)
-        ids.append(row["filename"])
+        user_id = row.get("user_id") or "default"
+        ids.append(f"{user_id}:{row['filename']}")
         documents.append(doc_text)
         # metadata เก็บไว้ใช้ตอนแสดงผล/กรองเพิ่มเติม — Chroma metadata ต้องเป็น str/int/float/bool เท่านั้น
         metadatas.append({
             "filename": row["filename"],
+            "user_id": user_id,
             "amount": row.get("amount") or 0.0,
             "source_app": row.get("source_app") or "unknown",
             "datetime_year": row.get("datetime_year") or 0,

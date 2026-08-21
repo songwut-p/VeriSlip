@@ -25,10 +25,11 @@ def _get_model():
     return _model
 
 
-def semantic_search(question: str, top_k: int = 5):
+def semantic_search(question: str, user_id: str = "default", top_k: int = 5):
     """
     คืน list ของ dict: [{"filename", "document", "distance", "metadata"}, ...]
     เรียงจากใกล้เคียงที่สุดก่อน (distance ยิ่งน้อยยิ่งใกล้เคียง)
+    กรองด้วย user_id เสมอ — ไม่งั้น user คนหนึ่งจะเห็นผล semantic search ของอีกคนได้
     """
     client = chromadb.PersistentClient(path=CHROMA_PATH)
     collection = client.get_or_create_collection(COLLECTION_NAME)
@@ -40,9 +41,12 @@ def semantic_search(question: str, top_k: int = 5):
     # e5 ต้องมี prefix "query: " นำหน้าคำถามตอนค้นเสมอ (คนละ prefix กับตอน index เอกสาร)
     query_embedding = model.encode([f"query: {question}"], normalize_embeddings=True).tolist()
 
+    # n_results ใช้ collection.count() (นับรวมทุก user) เป็นเพดานบน — ยังปลอดภัยเพราะแค่จำกัด
+    # จำนวนสูงสุดที่ "ขอ" ไม่ใช่จำนวนที่ "จะได้จริง" (where filter ทำงานก่อนตัดจำนวนอยู่ดี)
     result = collection.query(
         query_embeddings=query_embedding,
         n_results=min(top_k, collection.count()),
+        where={"user_id": user_id},
     )
 
     matches = []
