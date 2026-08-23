@@ -141,6 +141,29 @@ def preprocess_image_dynamic(
     return result
 
 
+THAI_DIGIT_TRANSLATION = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
+
+
+def _normalize_thai_digits(text: str) -> str:
+    """Tesseract บางครั้งอ่านตัวเลขบางตัวในเลขบัญชี/วันที่เป็นเลขไทย (๐-๙)
+    ปนกับเลขอารบิกในสตริงเดียวกัน เช่น '21๓๐๓3210' แทนที่จะเป็น '21303210'
+    ทั้งหมด -- ปัญหานี้ไม่เกี่ยวกับ SARA AM แต่เป็นกลุ่มอาการเดียวกัน (OCR
+    เลือกใช้ glyph ผิดชุดปนกันในบรรทัดเดียว) แก้โดยแปลงเลขไทยทุกตัวเป็น
+    อารบิกทันทีหลัง OCR ก่อนที่ regex/LLM ตัวไหนจะได้เห็นข้อความเลย"""
+    return text.translate(THAI_DIGIT_TRANSLATION)
+
+
+def _fix_ocr_thai_am(text: str) -> str:
+    """Tesseract แยกสระ ำ (SARA AM, U+0E33) เป็นนิคหิต+า (U+0E4D+U+0E32)
+    เสมอ -- เคยแก้บั๊กนี้ไว้แล้วใน ocr/document_classifier.py (23 Aug 2026)
+    เพื่อให้ keyword matching ของ classifier ใช้งานได้ แต่ตอนนั้นแก้แค่ฝั่ง
+    classifier ไม่ได้เอามาใช้ใน parse_slip.py เลย ทำให้ label ไหนก็ตามที่มี
+    สระ ำ (เช่น 'วันที่ทำรายการ' ของกรุงไทย -> OCR ได้ 'วันที่ทํารายการ')
+    ยัง match ไม่ได้เงียบๆ อยู่ดี -- แก้ตรงนี้เพื่อให้ label-matching ทุกจุด
+    ใน parser ได้ประโยชน์จาก fix เดียวกัน ไม่ใช่แค่ classifier"""
+    return text.replace("\u0e4d\u0e32", "\u0e33")
+
+
 def ocr_image_to_text(
     image_path: str,
     lang: str = "tha+eng",
@@ -190,7 +213,7 @@ def ocr_image_to_text(
             )
         else:
             image = preprocess_image(image, contrast_factor=contrast_factor)
-    return pytesseract.image_to_string(image, lang=lang)
+    return _fix_ocr_thai_am(_normalize_thai_digits(pytesseract.image_to_string(image, lang=lang)))
 
 
 def parse_amount(text: str):
@@ -239,8 +262,19 @@ KNOWN_MISREAD_MONTH_TOKENS = {"a.m.", "p.m.", "am", "pm"}
 
 
 def parse_datetime_raw(text: str):
-    """ดึง string ดิบของวันที่-เวลาจากบรรทัดถัดจาก label"""
-    pattern = r"(?:วันที่และเวลา|Date & Time)\s*\n\s*(.+)"
+    """ดึง string ดิบของวันที่-เวลา จาก label ที่รู้จัก
+
+    เดิมรองรับแค่ "วันที่และเวลา"/"Date & Time" และต้องมีค่าอยู่คนละ
+    บรรทัดกับ label เท่านั้น (\\n บังคับ) -- พบจากการทดสอบสลิปกรุงไทยจริง
+    (23 Aug 2026) ว่าใช้ label "วันที่ทำรายการ" แทน และค่าวางอยู่บรรทัด
+    เดียวกับ label (เว้นวรรคคั่นเยอะๆ ไม่ใช่ขึ้นบรรทัดใหม่) ทำให้ regex เดิม
+    ไม่แมตช์เลยทั้งที่มี label ชัดเจนอยู่แล้ว (ไปพึ่ง LLM fallback แทน
+    ทั้งที่ regex ควรจับได้ตรงๆ)
+
+    แก้ใหม่: เพิ่ม "วันที่ทำรายการ" เป็น label ทางเลือก และไม่บังคับ \\n
+    ระหว่าง label กับค่า (\\s* ครอบคลุมทั้งเว้นวรรคบรรทัดเดียวกันและขึ้น
+    บรรทัดใหม่อยู่แล้ว)"""
+    pattern = r"(?:วันที่และเวลา|Date & Time|วันที่ทำรายการ)\s*:?\s*(.+)"
     match = re.search(pattern, text)
     return match.group(1).strip() if match else None
 
@@ -564,6 +598,56 @@ def parse_names(text: str):
     return sender, recipient
 
 
+def parse_recipient_bank(text: str):
+    """ธนาคารของบัญชีปลายทาง (ผู้รับ) -- ต่างจาก parse_bank_name() ซึ่งหมาย
+    ถึงแอป/ธนาคารที่ใช้ทำรายการ (เช่น สลิปที่ใช้แอปกรุงไทยโอนไปบัญชีไทยพาณิชย์:
+    parse_bank_name() = "กรุงไทย", แต่ parse_recipient_bank() ควรได้ "ไทยพาณิชย์")
+
+    ใช้ตรรกะเดียวกับ tier 2/3 ของ parse_names(): หา "ธ." marker ตัวที่สอง
+    (ธนาคารผู้รับ) ก่อน ถ้าไม่เจอค่อยเดินถอยจากตำแหน่งเลขบัญชีผู้รับ (บัญชีตัว
+    สุดท้ายที่เจอ) หาบรรทัดที่ตรงกับ BANK_NAME_TOKENS -- จำกัดขอบเขตการเดินถอย
+    ไม่ให้ข้ามผ่านชื่อผู้รับเข้าไปในโซนของผู้โอน (พบบั๊ก 23 Aug 2026: สลิป TTB
+    พร้อมเพย์ เดินถอยเกินชื่อผู้รับไปเจอ "ttb" ของผู้โอนแทน ทั้งที่พร้อมเพย์
+    ไม่มีธนาคารปลายทางระบุจริงๆ -- ควรคืน None ในกรณีนี้)"""
+    lines = [l.rstrip() for l in text.split("\n")]
+    bank_marker_idxs = [i for i, l in enumerate(lines) if re.match(r"^\s*ธ\.", l.strip())]
+
+    if len(bank_marker_idxs) >= 2:
+        candidate = re.sub(r"^\s*ธ\.\s*", "", lines[bank_marker_idxs[1]].strip())
+        if candidate:
+            return candidate
+
+    combined_acct_pattern = f"(?:{ACCOUNT_NUMBER_PATTERN})|(?:{PROMPTPAY_ID_PATTERN})"
+    acct_matches = list(re.finditer(combined_acct_pattern, text))
+    if not acct_matches:
+        return None
+
+    target = acct_matches[1] if len(acct_matches) >= 2 else acct_matches[0]
+    account_line_idx = text[:target.start()].count("\n")
+
+    _, recipient_name = parse_names(text)
+    lower_bound_line = -1
+    if recipient_name:
+        for i, l in enumerate(lines):
+            if recipient_name in l.strip():
+                lower_bound_line = i
+                break
+
+    steps = 0
+    for j in range(account_line_idx - 1, lower_bound_line, -1):
+        steps += 1
+        if steps > 5:
+            break
+        candidate = lines[j].strip()
+        if not candidate or len(candidate) < 3:
+            continue
+        stripped = re.sub(r"^(?:ธนาคาร|ธ\.)\s*", "", candidate)
+        if stripped.lower() in BANK_NAME_TOKENS:
+            return stripped
+
+    return None
+
+
 def parse_bank_name(text: str):
     """ชื่อธนาคาร/แอป
 
@@ -612,6 +696,7 @@ def parse_slip_text(ocr_text: str) -> dict:
 
     result = {
         "bank_name": parse_bank_name(ocr_text),
+        "recipient_bank": parse_recipient_bank(ocr_text),
         "amount": amount,
         "currency": currency,
         "sender_name": sender_name,
@@ -766,3 +851,4 @@ if __name__ == "__main__":
         run_on_real_image(image_path, lang=lang)
     else:
         demo_with_hardcoded_text()
+        
