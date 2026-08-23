@@ -565,9 +565,30 @@ def parse_names(text: str):
 
 
 def parse_bank_name(text: str):
-    """ชื่อธนาคารมักอยู่บรรทัดแรกสุดของสลิป"""
-    lines = text.strip().split("\n")
-    return lines[0].strip() if lines else None
+    """ชื่อธนาคาร/แอป
+
+    เดิม: ดึงบรรทัดแรกสุดของ OCR text ตรงๆ ซึ่งพังเกือบทุกสลิป เพราะบรรทัด
+    แรกมักเป็นข้อความสถานะ ("โอนเงินสำเร็จ") ไม่ใช่ชื่อธนาคาร -- ปัญหานี้ถูก
+    บันทึกไว้แล้วใน dashboard_queries.py ("bank_name is free OCR text and
+    frequently captures status lines") ตอน Phase 4 Item 3 แต่ตอนนั้นแก้แค่
+    ฝั่ง dashboard (เปลี่ยนไปใช้ source_app) ไม่ได้แก้ที่ตัว parser เอง
+
+    แก้ใหม่ (23 Aug 2026): ค้นหาบรรทัดที่ตรงกับ BANK_NAME_TOKENS (list เดิมที่
+    ใช้ใน parse_names() อยู่แล้ว) ก่อน ถ้าเจอใช้ค่านั้น -- ถ้าไม่เจอเลย (เช่น
+    บางสลิปมีแค่โลโก้ธนาคารเป็นรูป ไม่มีชื่อธนาคารเป็นตัวอักษรให้ OCR อ่านเลย,
+    พบใน SCB/Krungsri บางแบบ) fallback กลับไปที่บรรทัดแรกเหมือนเดิม เพื่อไม่ให้
+    แย่ลงกว่าพฤติกรรมเดิม แม้จะไม่ถูกต้องก็ตาม -- known limitation ที่แก้ด้วย
+    regex ไม่ได้ เพราะไม่มีข้อความให้จับเลย"""
+    lines = [l.strip() for l in text.strip().split("\n") if l.strip()]
+    if not lines:
+        return None
+
+    for line in lines:
+        stripped = re.sub(r"^(?:ธนาคาร|ธ\.)\s*", "", line)
+        if stripped.lower() in BANK_NAME_TOKENS:
+            return stripped
+
+    return lines[0]
 
 
 def parse_slip_text(ocr_text: str) -> dict:
@@ -745,4 +766,3 @@ if __name__ == "__main__":
         run_on_real_image(image_path, lang=lang)
     else:
         demo_with_hardcoded_text()
-        
