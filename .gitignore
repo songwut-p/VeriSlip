@@ -10,3 +10,5 @@ slips.db
 tests/test_parse_stock_manual.py
 archive/
 คู่มือ_อัพเดท/
+CLAUDE.md
+Test_CrossBank/
