@@ -164,6 +164,49 @@ def _fix_ocr_thai_am(text: str) -> str:
     return text.replace("\u0e4d\u0e32", "\u0e33")
 
 
+def _maybe_upscale_small_image(
+    image: Image.Image,
+    min_short_side: int = 400,
+    target_short_side: int = 900,
+) -> Image.Image:
+    """Upscale ภาพที่เล็กเกินไปก่อนเข้า preprocessing pipeline
+
+    พบจากสลิปจริง (ออมสิน->ttb / MyMo, 23 Aug 2026, ขนาด 302x662) ว่าภาพที่
+    ด้านสั้นเล็กกว่า ~400-500px ทำให้ Tesseract อ่านตัวอักษรพังยับ (label
+    "จาก"/"ถึง" หายไปทั้งบรรทัด, เลข mask "xxxx" ถูกอ่านเป็นตัวเลขจริงแทน x)
+    ซึ่งพังคนละชั้นจาก field-parsing gap ทั่วไป -- แก้ที่ปลายทาง (regex) ไม่ได้
+    เพราะ OCR ไม่เคยเห็นตัวอักษรที่ถูกต้องเลยตั้งแต่ต้น
+
+    threshold เลือกจากการเทียบ resolution จริงของไฟล์ทดสอบทั้ง 22 ไฟล์ (18 ไฟล์
+    เดิม + 4 ไฟล์ธนาคารใหม่ที่ทดสอบ 23 Aug 2026) เรียงจากเล็กสุด: 302px (ไฟล์
+    เป้าหมายที่ต้อง upscale), 492px (Krungthai - ต้องไม่โดน), 828px ขึ้นไป (ที่
+    เหลือทั้งหมด) -- ตั้งไว้ที่ 400px (ไม่ใช่ 500px ตามที่ตั้งใจไว้ตอนแรก)
+
+    หมายเหตุสำคัญ (23 Aug 2026): รอบแรกตั้ง threshold ไว้ที่ 500px โดยเช็คแค่
+    "ต่ำกว่า 490px" ตอนสำรวจ resolution ทำให้พลาดไฟล์ Krungthai ที่อยู่ที่ 492px
+    (ใกล้เส้น 490 มาก) ไป -- รัน regression เต็มแล้วพบว่า Krungthai โดน upscale
+    ไปด้วยทั้งที่ไม่ควร ทำให้ datetime ที่เคย parse ได้กลับพัง (กลายเป็น None)
+    และชื่อผู้โอนเพี้ยนมากขึ้น แก้โดยขยับ threshold ลงมาที่ 400px ซึ่งอยู่กึ่งกลาง
+    ระหว่าง 302 กับ 492 พอดี (~90-100px กันชนทั้งสองด้าน) แล้ว regression เต็ม
+    22 ไฟล์อีกรอบยืนยันว่าไม่มีไฟล์ไหนถูกกระทบโดยไม่ตั้งใจอีก -- บทเรียน: ตัวเลข
+    ที่ "เกือบจะ" ติด threshold (492 vs 490) ต้องเช็คกับค่า threshold ที่ตั้งจริง
+    เป๊ะๆ ไม่ใช่แค่คร่าวๆ ตอนสำรวจ
+
+    ใช้ scale-to-target-size (ขยายให้ด้านสั้นถึง target_short_side) แทน fixed
+    multiplier คงที่ (เช่น x3) เพราะ fixed multiplier จะขยายเกินความจำเป็นสำหรับ
+    ภาพที่ borderline (เช่น 480px) และขยายไม่พอสำหรับภาพที่เล็กกว่านี้อีก (เช่น
+    150px) -- scale-to-target ปรับ factor ตามขนาดจริงของแต่ละภาพเสมอ
+
+    หมายเหตุ: แก้ได้แค่กรณี "ตัวอักษรเล็กในภาพ" เท่านั้น ถ้าภาพเบลอ/บีบอัดจน
+    รายละเอียดหายไปจริงๆ upscale จะไม่ช่วย เพราะแค่ขยายพิกเซลเดิมที่มีอยู่แล้ว"""
+    w, h = image.size
+    short_side = min(w, h)
+    if short_side < min_short_side:
+        scale = target_short_side / short_side
+        image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+    return image
+
+
 def ocr_image_to_text(
     image_path: str,
     lang: str = "tha+eng",
@@ -176,11 +219,17 @@ def ocr_image_to_text(
     size_threshold_ratio: float = 1.3,
     large_text_contrast: float = 1.0,
     small_text_contrast: float = 1.5,
+    min_short_side: int = 400,
+    target_short_side: int = 900,
 ) -> str:
     """
     เรียก Tesseract ผ่าน pytesseract เพื่ออ่านข้อความจากไฟล์ภาพ
     lang default เป็น 'tha+eng' ตามข้อสรุปจากผลการทดสอบ OCR ก่อนหน้า
     (ดู ocr_test_summary.md - tha+eng ให้ผลดีที่สุดสำหรับเอกสารที่มีอักษรผสม/ละติน)
+
+    ก่อนเข้า preprocessing ใดๆ จะเช็คก่อนว่าภาพเล็กเกินไปไหม (ดู
+    _maybe_upscale_small_image() - min_short_side/target_short_side ควบคุมค่านี้)
+    ถ้าเล็กเกินไปจะ upscale ก่อน ไม่งั้นปล่อยผ่านตามปกติ
 
     preprocess=True (default) จะ preprocess ภาพก่อนส่งเข้า OCR
     ตั้ง preprocess=False เพื่อเทียบผลกับภาพดิบ (สำหรับ debugging/comparison)
@@ -195,6 +244,9 @@ def ocr_image_to_text(
         (header_contrast, body_contrast, header_ratio)
     """
     image = Image.open(image_path)
+    image = _maybe_upscale_small_image(
+        image, min_short_side=min_short_side, target_short_side=target_short_side
+    )
     if preprocess:
         if preprocess_mode == "zoned":
             image = preprocess_image_zoned(
@@ -216,18 +268,63 @@ def ocr_image_to_text(
     return _fix_ocr_thai_am(_normalize_thai_digits(pytesseract.image_to_string(image, lang=lang)))
 
 
+# รูปแบบตัวเลขจำนวนเงิน: รองรับทั้ง comma-thousands ("1,000.00") และ
+# period-thousands ("1.000.00" -- พบจากสลิปออมสิน/MyMo จริง ที่ OCR อ่าน comma
+# เป็น period ปนกับ decimal point ทำให้มีจุดสองจุดในตัวเลขเดียว)
+AMOUNT_NUMBER_PATTERN = r"\d{1,3}(?:[,.]\d{3})*\.\d{2}"
+
+
+def _amount_str_to_float(amount_str: str) -> float:
+    """แปลง string จำนวนเงินเป็น float โดยตัด thousands separator (comma หรือ
+    period) ออกจากส่วนหน้า แล้วเก็บแค่ 2 หลักท้ายสุดไว้เป็นทศนิยมเสมอ
+    (แก้ปัญหา '1.000.00' ที่ .replace(',', '') เดิมทำไม่ได้ เพราะไม่มี comma
+    ให้ตัด และ float() ตรงๆ จะพังเพราะมีจุดสองจุด)"""
+    decimal_part = amount_str[-2:]
+    integer_part = re.sub(r"[,.]", "", amount_str[:-3])
+    return float(f"{integer_part}.{decimal_part}")
+
+
 def parse_amount(text: str):
     """
-    หาจำนวนเงิน เช่น '1,250.00 บาท' หรือ '1,250.00 THB'
-    คืนค่าเป็น float (ไม่รวม comma) + สกุลเงินที่เจอ
+    หาจำนวนเงิน คืนค่าเป็น (float, currency หรือ None)
+
+    เดิม: บังคับให้ต้องมีคำสกุลเงิน ('บาท'/'THB') ต่อท้ายตัวเลขทันทีเท่านั้น --
+    พบจากสลิปจริง (23 Aug 2026, SCB/ออมสิน-ttb/ttb) ว่าหลาย template ไม่มีคำ
+    สกุลเงินกำกับข้างจำนวนเงินเลย (แสดงเป็นตัวเลขเด่นๆ ใต้ label 'จำนวนเงิน'
+    หรือวางไว้เหนือบรรทัด 'ค่าธรรมเนียม' โดยไม่มีหน่วยกำกับ) ทำให้ amount เป็น
+    None แบบเงียบๆ ทั้งที่ OCR อ่านตัวเลขถูกอยู่แล้ว
+
+    แก้ใหม่ - ลองตามลำดับความน่าเชื่อถือ:
+    1) label 'จำนวนเงิน'/'Amount' ตามด้วยตัวเลขจำนวนเงิน (ไม่บังคับสกุลเงิน)
+    2) ตัวเลขจำนวนเงินที่วางอยู่ก่อนบรรทัด 'ค่าธรรมเนียม'/'Fee' ไม่กี่บรรทัด
+       (พบว่า template ที่ไม่มี label 'จำนวนเงิน' เลย มักวางจำนวนเงินไว้ตำแหน่งนี้
+       แทน - สังเกตจากสลิป ttb และออมสิน-ttb)
+    3) พฤติกรรมเดิม: ตัวเลขตามด้วยคำสกุลเงินโดยตรง (ยังคงไว้เป็น fallback
+       สุดท้าย เพื่อไม่ให้กระทบ K+/Dime ที่ label เป็น 'จำนวน:' ไม่ใช่ 'จำนวนเงิน'
+       ซึ่งไม่เข้าเงื่อนไข 1 แต่เข้าเงื่อนไข 3 ได้ปกติ)
+
+    currency จะเป็น None ถ้าไม่มีคำสกุลเงินปรากฏใกล้ๆ เลย (ไม่เดา ไม่ default
+    เป็น 'บาท' เพราะข้อมูลไม่ได้บอกจริงๆ)
     """
-    pattern = r"([\d,]+\.\d{2})\s*(บาท|THB)"
-    match = re.search(pattern, text)
-    if not match:
-        return None, None
-    amount_str = match.group(1).replace(",", "")
-    currency = match.group(2)
-    return float(amount_str), currency
+    currency_pattern = r"(บาท|THB)"
+
+    m = re.search(rf"(?:จำนวนเงิน|Amount)\s*:?\s*\n*\s*({AMOUNT_NUMBER_PATTERN})", text)
+    if m:
+        amount_str = m.group(1)
+        tail = text[m.end(): m.end() + 15]
+        currency_match = re.search(currency_pattern, tail)
+        currency = currency_match.group(1) if currency_match else None
+        return _amount_str_to_float(amount_str), currency
+
+    m = re.search(rf"({AMOUNT_NUMBER_PATTERN})\s*\n*\s*(?:ค่าธรรมเนียม|Fee)", text)
+    if m:
+        return _amount_str_to_float(m.group(1)), None
+
+    m = re.search(rf"({AMOUNT_NUMBER_PATTERN})\s*{currency_pattern}", text)
+    if m:
+        return _amount_str_to_float(m.group(1)), m.group(2)
+
+    return None, None
 
 
 def parse_transaction_id(text: str):
@@ -302,8 +399,13 @@ def parse_datetime_components(raw_str: str) -> dict:
         result["note"] = "no datetime string found"
         return result
 
+    # เดิม: ตัวคั่นระหว่างปีกับเวลารองรับแค่ comma หรือช่องว่างเท่านั้น (',?\s+')
+    # -- พบจากสลิปกรุงไทยจริง (23 Aug 2026) ว่าใช้ขีด " - " คั่นแทน
+    # ("01 ก.พ. 2565 - 15:40") ซึ่งเดิม \s+ กินช่องว่างตัวแรกไปตัวเดียวแล้วเจอ
+    # '-' ที่ไม่ใช่ whitespace เลยแมตช์ hour ต่อไม่ได้ -- แก้เป็น '\s*[,\-]?\s*'
+    # รองรับได้ทั้ง comma, ขีด, หรือแค่ช่องว่างเฉยๆ โดยไม่กระทบ format เดิม
     m = re.search(
-        r"(?P<day>\d{1,2})\s+(?P<month>\S+)\s+(?P<year>\d{4}),?\s+"
+        r"(?P<day>\d{1,2})\s+(?P<month>\S+)\s+(?P<year>\d{4})\s*[,\-]?\s*"
         r"(?P<hour>\d{1,2}):(?P<minute>\d{2})",
         raw_str,
     )
@@ -359,13 +461,71 @@ ACCOUNT_LABEL_PATTERN = r"(?:เลขที่บัญชี|From Account|To A
 # ID sits directly under the bank-name line with no label text to anchor on.
 PROMPTPAY_ID_PATTERN = r"[xX]{2,4}-[xX]{2,4}-\d{3,6}"
 
+# Masked account number with NO dash separators at all -- e.g. "0504xxxx5805"
+# (ออมสิน/MyMo real slip, 23 Aug 2026). Different from ACCOUNT_NUMBER_PATTERN,
+# which assumes the dashed "xxx-x-xxxxx-x" bank-account shape; this app shows
+# the mask inline within one unbroken digit run instead. Require >=2
+# consecutive x's to avoid matching a single stray OCR-noise 'x' inside an
+# otherwise-plain digit string (transaction IDs, timestamps, etc.).
+DASHLESS_MASKED_ACCOUNT_PATTERN = r"\d{2,6}[xX]{2,6}\d{2,6}"
+
+# ทุกจุดที่ต้อง match "อะไรก็ตามที่มีรูปร่างเหมือนเลขบัญชี/PromptPay ID" รวมไว้ที่
+# ตัวแปรเดียวนี้ (เดิมประกาศ combined pattern ซ้ำ 3 จุดในไฟล์แยกกัน เสี่ยงแก้
+# จุดหนึ่งแล้วลืมอีกจุด -- 23 Aug 2026 รวมเป็นจุดเดียว)
+COMBINED_ACCOUNT_LIKE_PATTERN = (
+    f"(?:{ACCOUNT_NUMBER_PATTERN})|(?:{PROMPTPAY_ID_PATTERN})|(?:{DASHLESS_MASKED_ACCOUNT_PATTERN})"
+)
+
+# แยกอีกตัวสำหรับ parse_names() tier-3 fallback (anchor ชื่อจากตำแหน่งเลขบัญชี)
+# โดยเฉพาะ -- ไม่รวม DASHLESS_MASKED_ACCOUNT_PATTERN เพราะทดสอบแล้วพบว่า
+# เบอร์โทรแบบ mask ("064XXX7256" ของผู้รับที่เป็นบริษัท เช่น Advance MPay)
+# มีรูปร่างตรงกับ pattern นี้ด้วย ทำให้ tier-3 เข้าใจผิดว่าเจอเลขบัญชีที่ 2
+# แล้ว anchor ชื่อผิดตำแหน่ง (ได้ transaction ID มาแทนชื่อบริษัท) -- จุดที่
+# ต้องการ "รูปร่างเลขบัญชี/PromptPay" จริงๆ (ไม่ใช่จุดที่ดึงค่าเลขบัญชีไปแสดงผล)
+# ยังใช้ pattern แคบแบบเดิมต่อไป
+NAME_ANCHOR_ACCOUNT_PATTERN = f"(?:{ACCOUNT_NUMBER_PATTERN})|(?:{PROMPTPAY_ID_PATTERN})"
+
+
+# คำนำหน้า/ปัจจัยชื่อนิติบุคคล -- ใช้แยกกรณีผู้รับที่เป็นบริษัท/merchant (เช่น
+# จ่ายบิล Shopee, TikTok, ค่าโทรศัพท์รายเดือนผ่าน Advance MPay ฯลฯ) ออกจากผู้รับ
+# ที่เป็นบุคคลธรรมดา เพราะสลิปจ่ายบิลบริษัทมักมีเลขอ้างอิง/เบอร์โทร mask วางอยู่
+# ใกล้ชื่อบริษัท ซึ่งมีรูปร่าง digit-x-digit เหมือนเลขบัญชีจริงทุกประการ แยกด้วย
+# regex shape อย่างเดียวไม่ได้ - 23 Aug 2026
+#
+# รองรับทั้งชื่อไทย ("บริษัท") และชื่ออังกฤษ ("... CO.,LTD.") เพราะพบสลิปจริง
+# 2 ใบจากบริษัทเดียวกัน (Advance MPay) ที่ template ต่างกัน: ใบหนึ่งโชว์ชื่อไทย
+# "บริษัท แอดวานซ์ เอ็มเปย์" อีกใบโชว์ "ADVANCE MPAY CO.,LTD." ล้วน -- ไม่มี
+# "บริษัท" เลย ต้องเช็คทั้งสองแบบ
+#
+# หมายเหตุ: ตอนแรกใช้ "บริษัท...จำกัด" (คำเต็ม) แต่พบว่า OCR อ่านคำว่า "จำกัด"
+# ผิดบ่อยมาก (พบเป็น "TAA" ในสลิปจริง) ทำให้ signature ไม่ match เลย -- เปลี่ยน
+# มาใช้แค่ "บริษัท" คำเดียว เพราะเป็นคำที่ OCR อ่านเสถียรกว่ามาก
+COMPANY_NAME_SIGNATURE_PATTERN = r"บริษัท|CO\.,?\s*LTD\.?"
+
+
+def _is_near_company_name(text: str, match_start: int, lookback: int = 80) -> bool:
+    """เช็คว่าตำแหน่ง match_start อยู่ในช่วงไม่กี่บรรทัดถัดจากชื่อบริษัทไหม
+    (ดู COMPANY_NAME_SIGNATURE_PATTERN) -- ไม่สนตัวพิมพ์เล็ก-ใหญ่ เพราะชื่อ
+    บริษัทอังกฤษบนสลิปจริงพิมพ์เป็นตัวใหญ่ล้วน ("CO.,LTD.")"""
+    window_start = max(0, match_start - lookback)
+    return re.search(COMPANY_NAME_SIGNATURE_PATTERN, text[window_start:match_start], re.IGNORECASE) is not None
+
 
 def _scan_positional_account_matches(text: str):
     """Fallback for slips with no account-number label at all: scan the
     whole text in order for anything shaped like a bank account number
-    or a PromptPay ID, first two occurrences = sender, recipient."""
-    combined = f"(?:{ACCOUNT_NUMBER_PATTERN})|(?:{PROMPTPAY_ID_PATTERN})"
-    return [m.group(0) for m in re.finditer(combined, text)]
+    or a PromptPay ID, first two occurrences = sender, recipient.
+
+    ข้าม match ที่อยู่ใกล้ชื่อบริษัท (ดู COMPANY_NAME_SIGNATURE_PATTERN) เพราะ
+    พบว่าเป็นเบอร์โทร/เลขอ้างอิง mask ของบริษัท ไม่ใช่เลขบัญชีจริง แม้รูปร่างจะ
+    ตรงกับ DASHLESS_MASKED_ACCOUNT_PATTERN ก็ตาม (พบจากสลิปจ่ายบิล Advance
+    MPay - 23 Aug 2026, ผู้ใช้ระบุว่าเจอบ่อยกับ Shopee/TikTok/บิลมือถือรายเดือน
+    ซึ่งใช้ชื่อจดทะเบียน 'บริษัท...จำกัด' แบบเดียวกัน)"""
+    return [
+        m.group(0)
+        for m in re.finditer(COMBINED_ACCOUNT_LIKE_PATTERN, text)
+        if not _is_near_company_name(text, m.start())
+    ]
 
 
 def normalize_account_number(acc_str: str) -> str:
@@ -399,7 +559,7 @@ def parse_account_numbers(text: str):
             if candidate_line is None:
                 results.append({"value": None, "issue": "label found but no non-blank following line within range"})
                 continue
-            match = re.search(ACCOUNT_NUMBER_PATTERN, candidate_line)
+            match = re.search(COMBINED_ACCOUNT_LIKE_PATTERN, candidate_line)
             if match:
                 results.append({"value": normalize_account_number(match.group(0)), "issue": None})
             else:
@@ -455,6 +615,21 @@ def _is_bare_bank_name_line(candidate: str) -> bool:
     return stripped.lower() in BANK_NAME_TOKENS
 
 
+def _strip_icon_prefix(candidate: str) -> str:
+    """ตัด prefix ขยะ 1-3 ตัวอักษร (มักเป็นไอคอนโลโก้ธนาคาร/แอปที่ OCR อ่านผิด
+    เป็นตัวอักษรละตินหรือสัญลักษณ์ เช่น 'tib', 'Cu', 'Ub', '&') ที่นำหน้าชื่อจริง
+    บนบรรทัดเดียวกัน
+
+    เดิม logic นี้ inline อยู่ใน tier 2/3 fallback (ตำแหน่งที่หาชื่อจากการเดิน
+    ถอยจาก 'ธ.' marker หรือตำแหน่งเลขบัญชี) เท่านั้น แต่ tier 1 (label
+    'จาก'/'ถึง' ตรงๆ) ไม่เคย apply เลย เพราะแต่เดิมสมมติว่าสลิปที่มี label
+    ชัดเจนน่าจะไม่มีขยะไอคอนปน -- พบว่าไม่จริงจากสลิปออมสิน-ttb/MyMo จริง
+    (23 Aug 2026) ที่มี label 'จาก'/'ถึง' อยู่แล้ว แต่ไอคอนวงกลมข้างหน้าชื่อยัง
+    OCR ปนมาเป็นตัวอักษรขยะบนบรรทัดเดียวกันอยู่ดี -- ย้าย logic มาเป็นฟังก์ชัน
+    กลางแล้ว apply ทั้ง 3 tier ให้เหมือนกัน (เดิมเขียนซ้ำ 2 ที่ใน tier 2/3)"""
+    return re.sub(r"^[a-zA-Z&]{1,3}\s+(?=\S)", "", candidate.strip())
+
+
 def parse_names(text: str):
     """หาชื่อผู้โอน/ผู้รับ
 
@@ -466,6 +641,9 @@ def parse_names(text: str):
        -> ผู้รับ: บรรทัดก่อนหน้า "ธ." ตัวที่สอง (โอนไปอีกธนาคาร) หรือก่อนหน้า
           "Prompt" (โอนผ่านพร้อมเพย์) ถ้าไม่เจอทั้งสองแบบ (เช่น จ่ายบิลร้านค้า
           ที่ไม่มี anchor ชัดเจน) ถือเป็น known limitation - คืน None
+
+    ทุก tier ที่หาชื่อได้จะผ่าน _strip_icon_prefix() ก่อน คืนค่าเสมอ เพื่อตัดขยะ
+    ไอคอนโลโก้ที่ OCR อ่านผิดเป็นตัวอักษรนำหน้าชื่อ (ดู docstring ของฟังก์ชันนั้น)
     """
     sender_pattern = r"(?:^|\n)(?:จาก|From)\s*\n\s*(.+)"
     recipient_pattern = r"(?:^|\n)(?:ถึง|To)\s*\n\s*(.+)"
@@ -473,8 +651,8 @@ def parse_names(text: str):
     sender_match = re.search(sender_pattern, text)
     recipient_match = re.search(recipient_pattern, text)
 
-    sender = sender_match.group(1).strip() if sender_match else None
-    recipient = recipient_match.group(1).strip() if recipient_match else None
+    sender = _strip_icon_prefix(sender_match.group(1)) if sender_match else None
+    recipient = _strip_icon_prefix(recipient_match.group(1)) if recipient_match else None
 
     if sender is None or recipient is None:
         lines = [l.rstrip() for l in text.split("\n")]
@@ -509,7 +687,7 @@ def parse_names(text: str):
                 candidate = lines[j].strip()
                 if not candidate or len(candidate) < min_len:
                     continue
-                candidate = re.sub(r"^[a-zA-Z]{1,3}\s+(?=\S)", "", candidate)
+                candidate = _strip_icon_prefix(candidate)
                 if _is_bare_bank_name_line(candidate):
                     continue
                 if re.fullmatch(r"\(.*\)", candidate):
@@ -521,7 +699,7 @@ def parse_names(text: str):
                         prev_candidate = lines[k].strip()
                         if not prev_candidate or len(prev_candidate) < min_len:
                             continue
-                        prev_candidate = re.sub(r"^[a-zA-Z]{1,3}\s+(?=\S)", "", prev_candidate)
+                        prev_candidate = _strip_icon_prefix(prev_candidate)
                         candidate = f"{prev_candidate} {candidate}"
                         break
                 return candidate
@@ -541,8 +719,7 @@ def parse_names(text: str):
                     recipient = _preceding_nonblank(prompt_idx)
 
     if sender is None or recipient is None:
-        combined_acct_pattern = f"(?:{ACCOUNT_NUMBER_PATTERN})|(?:{PROMPTPAY_ID_PATTERN})"
-        acct_matches = list(re.finditer(combined_acct_pattern, text))
+        acct_matches = list(re.finditer(NAME_ANCHOR_ACCOUNT_PATTERN, text))
 
         def _preceding_nonblank_from_offset(char_offset, min_len=3, max_lookback=5):
             """Same garbage-line-skipping logic as the bank-marker
@@ -560,7 +737,7 @@ def parse_names(text: str):
                 candidate = lines[j].strip()
                 if not candidate or len(candidate) < min_len:
                     continue
-                candidate = re.sub(r"^[a-zA-Z]{1,3}\s+(?=\S)", "", candidate)
+                candidate = _strip_icon_prefix(candidate)
                 if _is_bare_bank_name_line(candidate):
                     continue
                 if re.fullmatch(r"\(.*\)", candidate):
@@ -572,7 +749,7 @@ def parse_names(text: str):
                         prev_candidate = lines[k].strip()
                         if not prev_candidate or len(prev_candidate) < min_len:
                             continue
-                        prev_candidate = re.sub(r"^[a-zA-Z]{1,3}\s+(?=\S)", "", prev_candidate)
+                        prev_candidate = _strip_icon_prefix(prev_candidate)
                         candidate = f"{prev_candidate} {candidate}"
                         break
                 return candidate
@@ -617,8 +794,7 @@ def parse_recipient_bank(text: str):
         if candidate:
             return candidate
 
-    combined_acct_pattern = f"(?:{ACCOUNT_NUMBER_PATTERN})|(?:{PROMPTPAY_ID_PATTERN})"
-    acct_matches = list(re.finditer(combined_acct_pattern, text))
+    acct_matches = list(re.finditer(NAME_ANCHOR_ACCOUNT_PATTERN, text))
     if not acct_matches:
         return None
 
@@ -648,8 +824,14 @@ def parse_recipient_bank(text: str):
     return None
 
 
+BANK_NAME_NOT_DETECTED_MESSAGE = (
+    "ระบบอ่านชื่อธนาคาร/แอปจากภาพไม่ได้ (โลโก้เป็นรูปภาพ ไม่มีตัวอักษรให้อ่าน) "
+    "กรุณากรอกเอง"
+)
+
+
 def parse_bank_name(text: str):
-    """ชื่อธนาคาร/แอป
+    """ชื่อธนาคาร/แอป -- คืนค่าเป็น (value, issue)
 
     เดิม: ดึงบรรทัดแรกสุดของ OCR text ตรงๆ ซึ่งพังเกือบทุกสลิป เพราะบรรทัด
     แรกมักเป็นข้อความสถานะ ("โอนเงินสำเร็จ") ไม่ใช่ชื่อธนาคาร -- ปัญหานี้ถูก
@@ -657,22 +839,41 @@ def parse_bank_name(text: str):
     frequently captures status lines") ตอน Phase 4 Item 3 แต่ตอนนั้นแก้แค่
     ฝั่ง dashboard (เปลี่ยนไปใช้ source_app) ไม่ได้แก้ที่ตัว parser เอง
 
-    แก้ใหม่ (23 Aug 2026): ค้นหาบรรทัดที่ตรงกับ BANK_NAME_TOKENS (list เดิมที่
-    ใช้ใน parse_names() อยู่แล้ว) ก่อน ถ้าเจอใช้ค่านั้น -- ถ้าไม่เจอเลย (เช่น
-    บางสลิปมีแค่โลโก้ธนาคารเป็นรูป ไม่มีชื่อธนาคารเป็นตัวอักษรให้ OCR อ่านเลย,
-    พบใน SCB/Krungsri บางแบบ) fallback กลับไปที่บรรทัดแรกเหมือนเดิม เพื่อไม่ให้
-    แย่ลงกว่าพฤติกรรมเดิม แม้จะไม่ถูกต้องก็ตาม -- known limitation ที่แก้ด้วย
-    regex ไม่ได้ เพราะไม่มีข้อความให้จับเลย"""
+    แก้ครั้งที่ 1 (23 Aug 2026): ค้นหาบรรทัดที่ตรงกับ BANK_NAME_TOKENS ก่อน
+    ถ้าเจอใช้ค่านั้น ถ้าไม่เจอเลย fallback กลับไปที่บรรทัดแรกเหมือนเดิม
+
+    แก้ครั้งที่ 2 (23 Aug 2026, วันเดียวกัน): ทดสอบกับสลิปจริงกว้างขึ้นแล้วพบว่า
+    "fallback ไปบรรทัดแรก" ไม่ได้เป็นปัญหาเฉพาะ SCB อย่างที่คิดตอนแรก แต่พัง
+    แบบเดียวกันใน Make (5 ไฟล์ - โลโก้ "Make by KBank" OCR กระจายเป็นเศษคำ
+    ปนกับข้อความสถานะ), TrueMoney (อ่านได้แค่เศษคำ "true"), และ K+ บางไฟล์
+    (บรรทัดขยะสัญลักษณ์ล้วนๆ) -- แปลว่าบรรทัดแรกที่ไม่ match BANK_NAME_TOKENS
+    แทบทุกกรณีคือขยะ ไม่ใช่ชื่อธนาคารที่ใช้ได้จริง เปลี่ยนเป็น: ไม่ fallback
+    ไปบรรทัดแรกอีกต่อไป -- ถ้าหา BANK_NAME_TOKENS ไม่เจอเลยในทั้งเอกสาร คืน
+    None พร้อม issue message ที่ frontend ใช้แสดงเป็นช่องให้ user กรอกเองแทน
+    (ตามที่ตกลงกับผู้ใช้ 23 Aug 2026 - ดีกว่าโชว์ข้อมูลผิดๆ อย่างมั่นใจ)
+
+    เพิ่ม: จับคู่ BANK_NAME_TOKENS แบบ "คำในบรรทัด" ไม่ใช่ทั้งบรรทัดต้องตรงเป๊ะ
+    เหมือนเดิม (พบว่าบางบรรทัดมีขยะ OCR ต่อท้ายชื่อธนาคารจริง เช่น
+    'ธ.กสิกรไทย                     4' ซึ่งเดิม exact-match ทั้งบรรทัดพลาด
+    ทั้งที่ชื่อธนาคารอยู่ในนั้นจริง) -- ช่วยลดจำนวนไฟล์ที่ต้องให้ user กรอกเอง
+    ลงได้บางส่วน โดยไม่กระทบ matching logic ที่ใช้ร่วมกับฟังก์ชันอื่น (จุดนี้
+    เป็น local logic เฉพาะ parse_bank_name เท่านั้น ไม่แตะ _is_bare_bank_name_line
+    หรือ parse_recipient_bank ที่ยังใช้ exact-match เดิมต่อไป เพื่อจำกัดขอบเขต
+    ผลกระทบ)"""
     lines = [l.strip() for l in text.strip().split("\n") if l.strip()]
     if not lines:
-        return None
+        return None, BANK_NAME_NOT_DETECTED_MESSAGE
 
     for line in lines:
         stripped = re.sub(r"^(?:ธนาคาร|ธ\.)\s*", "", line)
         if stripped.lower() in BANK_NAME_TOKENS:
-            return stripped
+            return stripped, None
+        for word in stripped.split():
+            word_clean = re.sub(r"^(?:ธนาคาร|ธ\.)\s*", "", word)
+            if word_clean.lower() in BANK_NAME_TOKENS:
+                return word_clean, None
 
-    return lines[0]
+    return None, BANK_NAME_NOT_DETECTED_MESSAGE
 
 
 def parse_slip_text(ocr_text: str) -> dict:
@@ -686,6 +887,7 @@ def parse_slip_text(ocr_text: str) -> dict:
     ชัดเจน - ดู hybrid_parse_slip_text() สำหรับเวอร์ชันที่มี LLM fallback
     """
     amount, currency = parse_amount(ocr_text)
+    bank_name, bank_name_issue = parse_bank_name(ocr_text)
     sender_name, recipient_name = parse_names(ocr_text)
     accounts = parse_account_numbers(ocr_text)
     raw_datetime = parse_datetime_raw(ocr_text)
@@ -695,7 +897,8 @@ def parse_slip_text(ocr_text: str) -> dict:
     recipient_account = accounts[1] if len(accounts) > 1 else {"value": None, "issue": "label not found"}
 
     result = {
-        "bank_name": parse_bank_name(ocr_text),
+        "bank_name": bank_name,
+        "bank_name_issue": bank_name_issue,
         "recipient_bank": parse_recipient_bank(ocr_text),
         "amount": amount,
         "currency": currency,
