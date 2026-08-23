@@ -5,6 +5,7 @@ API_BASE = "http://localhost:8000"
 
 FIELD_LABELS = {
     "bank_name": "ธนาคาร/แอป",
+    "recipient_bank": "ธนาคารผู้รับ",
     "amount": "จำนวนเงิน",
     "currency": "สกุลเงิน",
     "sender_name": "ชื่อผู้โอน",
@@ -34,6 +35,42 @@ FIELD_LABELS = {
 
 st.set_page_config(page_title="AI Document Assistant", page_icon="🧾")
 st.title("AI Document Assistant")
+
+
+@st.dialog("ยืนยันการบันทึก")
+def confirm_save_dialog(final_parsed: dict, upload: dict, user_id: str):
+    """Popup ให้ตรวจค่าที่จะบันทึกอีกครั้งก่อนยิง API จริง -- เพิ่ม 23 Aug 2026
+    เพื่อแก้ปัญหา st.form submit ตอนกด Enter ในช่อง text_input เดียวขณะยัง
+    แก้ field อื่นไม่ครบ (Streamlit's built-in 'Press Enter to submit form'
+    behavior ทำให้บันทึกค่าที่ยังแก้ไม่เสร็จลง DB โดยไม่ตั้งใจ)"""
+    st.write("ตรวจสอบค่าที่จะบันทึกอีกครั้ง:")
+    preview_rows = [
+        {"ฟิลด์": FIELD_LABELS.get(k, k), "ค่าที่จะบันทึก": v if v is not None else "—"}
+        for k, v in final_parsed.items()
+        if not k.endswith("_issue") and k not in {"datetime_parsed", "extraction_source"}
+    ]
+    st.table(preview_rows)
+
+    col1, col2 = st.columns(2)
+    if col1.button("✅ ยืนยันบันทึก", use_container_width=True):
+        payload = {
+            "filename": upload["filename"],
+            "doc_type": upload["doc_type"],
+            "parsed": final_parsed,
+            "user_id": user_id,
+        }
+        save_result = call_api(
+            "POST", "/save-slip",
+            spinner_text="กำลังบันทึกลง SQLite + สร้าง embedding เข้า Chroma...",
+            json=payload,
+        )
+        if save_result is not None:
+            st.session_state["save_result"] = save_result
+            del st.session_state["last_upload"]
+        st.rerun()
+    if col2.button("↩️ ยกเลิก / กลับไปแก้ไข", use_container_width=True):
+        st.rerun()
+
 
 # PoC เท่านั้น: user_id เป็นแค่ string ที่พิมพ์เอง ไม่มี auth/password จริง
 # ใช้เพื่อทดสอบว่าข้อมูลแยกกันถูกต้องตอนมีหลายคนใช้พร้อมกัน (ไม่ใช่ระบบความปลอดภัยจริง)
@@ -88,50 +125,77 @@ if page == "Upload Slip":
         if result is not None:
             st.session_state["last_upload"] = result
 
-            doc_type_labels = {
-                "bank_slip": "สลิปโอนเงิน",
-                "stock_confirmation": "ใบยืนยันซื้อหุ้น",
-            }
-            label = doc_type_labels.get(result["doc_type"], result["doc_type"])
-            st.success(f"อ่านไฟล์สำเร็จ — ตรวจพบว่าเป็น: **{label}**")
-
-            parsed = result.get("parsed", {})
-            INTERNAL_FIELDS = {"datetime_parsed", "extraction_source"}
-            display_fields = {
-                k: v for k, v in parsed.items()
-                if not k.endswith("_issue") and k not in INTERNAL_FIELDS
-            }
-            if display_fields:
-                st.table(
-                    [{"ฟิลด์": FIELD_LABELS.get(k, k), "ค่าที่อ่านได้": v if v is not None else "—"}
-                     for k, v in display_fields.items()]
-                )
-
-            issue_fields = {k: v for k, v in parsed.items() if k.endswith("_issue") and v}
-            if issue_fields:
-                with st.expander(f"⚠️ พบข้อมูลไม่ครบ {len(issue_fields)} จุด"):
-                    for k, v in issue_fields.items():
-                        st.write(f"- **{k}**: {v}")
-
     if "last_upload" in st.session_state:
-        if st.button("บันทึกลงฐานข้อมูล"):
-            payload = {
-                "filename": st.session_state["last_upload"]["filename"],
-                "doc_type": st.session_state["last_upload"]["doc_type"],
-                "parsed": st.session_state["last_upload"]["parsed"],
-                "user_id": user_id,
-            }
-            save_result = call_api(
-                "POST", "/save-slip",
-                spinner_text="กำลังบันทึกลง SQLite + สร้าง embedding เข้า Chroma...",
-                json=payload,
-            )
-            if save_result is not None:
-                row = save_result.get("db_row", {})
-                st.success(f"บันทึกสำเร็จ — {row.get('filename', '')}")
-                col1, col2 = st.columns(2)
-                col1.metric("ยอดเงิน", f"{row['amount']:,.2f} {row.get('currency') or ''}" if row.get("amount") is not None else "ไม่ทราบยอด")
-                col2.metric("ประเภทเอกสาร", "สลิปโอนเงิน" if row.get("doc_type") == "bank_slip" else "ใบยืนยันซื้อหุ้น")
+        upload = st.session_state["last_upload"]
+        parsed = upload.get("parsed", {})
+
+        doc_type_labels = {
+            "bank_slip": "สลิปโอนเงิน",
+            "stock_confirmation": "ใบยืนยันซื้อหุ้น",
+        }
+        label = doc_type_labels.get(upload["doc_type"], upload["doc_type"])
+        st.success(f"อ่านไฟล์สำเร็จ — ตรวจพบว่าเป็น: **{label}**")
+
+        INTERNAL_FIELDS = {"datetime_parsed", "extraction_source"}
+        display_fields = {
+            k: v for k, v in parsed.items()
+            if not k.endswith("_issue") and k not in INTERNAL_FIELDS
+        }
+
+        issue_fields = {k: v for k, v in parsed.items() if k.endswith("_issue") and v}
+        if issue_fields:
+            with st.expander(f"⚠️ พบข้อมูลไม่ครบ {len(issue_fields)} จุด"):
+                for k, v in issue_fields.items():
+                    st.write(f"- **{k}**: {v}")
+
+        # ฟิลด์ที่เป็นตัวเลข -- ต้องพยายามแปลงกลับเป็น float ตอนบันทึก
+        NUMERIC_FIELDS = {
+            "amount", "amount_thb", "amount_usd", "exchange_rate",
+            "stock_value_thb", "commission_thb", "vat_thb", "price_usd", "shares",
+        }
+
+        st.subheader("ตรวจสอบและแก้ไขข้อมูล")
+        st.caption("ค่าด้านล่างมาจาก OCR — ถ้าอ่านผิด แก้ในช่องได้ก่อนกดบันทึก")
+
+        if display_fields:
+            with st.form("edit_slip_form"):
+                edited_raw = {}
+                for k, v in display_fields.items():
+                    edited_raw[k] = st.text_input(
+                        FIELD_LABELS.get(k, k),
+                        value="" if v is None else str(v),
+                    )
+                save_clicked = st.form_submit_button("บันทึกลงฐานข้อมูล")
+
+            if save_clicked:
+                final_parsed = dict(parsed)
+                has_error = False
+                for k, raw_value in edited_raw.items():
+                    raw_value = raw_value.strip()
+                    if raw_value == "":
+                        final_parsed[k] = None
+                    elif k in NUMERIC_FIELDS:
+                        try:
+                            final_parsed[k] = float(raw_value)
+                        except ValueError:
+                            st.error(f"'{FIELD_LABELS.get(k, k)}' ต้องเป็นตัวเลข — ได้รับ: {raw_value!r}")
+                            has_error = True
+                    else:
+                        final_parsed[k] = raw_value
+
+                if not has_error:
+                    confirm_save_dialog(final_parsed, upload, user_id)
+
+    if "save_result" in st.session_state:
+        save_result = st.session_state["save_result"]
+        row = save_result.get("db_row", {})
+        st.success(f"บันทึกสำเร็จ — {row.get('filename', '')}")
+        col1, col2 = st.columns(2)
+        col1.metric("ยอดเงิน", f"{row['amount']:,.2f} {row.get('currency') or ''}" if row.get("amount") is not None else "ไม่ทราบยอด")
+        col2.metric("ประเภทเอกสาร", "สลิปโอนเงิน" if row.get("doc_type") == "bank_slip" else "ใบยืนยันซื้อหุ้น")
+        del st.session_state["save_result"]
+
+
 
 
 elif page == "Ask":
