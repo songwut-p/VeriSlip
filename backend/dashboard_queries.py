@@ -25,6 +25,12 @@ Design principles (agreed with Songwut, 19 Aug 2026):
 - No single query mixes bank_slip and stock_confirmation amounts unless the
   caller explicitly asks for combined totals (mirrors the same bug we just fixed
   in rag/query_router.py's /ask intents).
+
+NOTE (23 Aug 2026): this module is READ-ONLY by design (_connect() opens SQLite
+in mode=ro). Do NOT add write operations (INSERT/UPDATE/DELETE) here -- writes
+belong in db/import_slips.py, which already owns the read-write connection used
+by save_record(). Keeping writes in one place avoids two modules disagreeing
+about schema/locking behavior.
 """
 
 import json
@@ -164,7 +170,7 @@ def get_recent_slips(user_id: str, limit: int = 20) -> list[dict[str, Any]]:
     with _connect() as conn:
         rows = conn.execute(
             f"""
-            SELECT id, doc_type, filename, datetime_year, datetime_month, datetime_day,
+            SELECT id, doc_type, filename, image_path, datetime_year, datetime_month, datetime_day,
                    amount, currency, bank_name, sender_name, recipient_name, source_app,
                    ({has_issue_case}) AS has_issue
             FROM slips
@@ -173,6 +179,43 @@ def get_recent_slips(user_id: str, limit: int = 20) -> list[dict[str, Any]]:
             LIMIT ?
             """,
             (user_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def search_slips(user_id: str, query: str, limit: int = 20) -> list[dict[str, Any]]:
+    """
+    ค้นหาสลิปจาก filename/ชื่อผู้โอน/ชื่อผู้รับ/ชื่อธนาคาร-แอป -- ค้นทั่วทั้ง DB
+    ของ user นี้ (ไม่จำกัดแค่รายการล่าสุด) เพิ่ม 23 Aug 2026 ตามคำขอ: ไฟล์ที่
+    อัปโหลดผิดแล้วอยากลบทิ้ง อาจหลุดออกจากรายการ "ล่าสุด" (ตอนนี้ตั้ง limit
+    ไว้แค่ 5) ไปแล้วก็ได้ ถ้า search แค่ในรายการที่แสดงอยู่จะหาไม่เจอ
+
+    ใช้ LIKE แบบ case-insensitive (SQLite ทำ case-insensitive ให้อัตโนมัติ
+    สำหรับ ASCII แต่ไม่ครอบคลุมภาษาไทย -- ยอมรับข้อจำกัดนี้ไปก่อน เพราะ user
+    ส่วนใหญ่มักจำได้แค่บางส่วนของชื่อไฟล์/ชื่อคนอยู่แล้ว ไม่ต้องพิมพ์ให้ตรง
+    case เป๊ะ)
+    """
+    has_issue_case = _has_issue_case_sql()
+    like_pattern = f"%{query}%"
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT id, doc_type, filename, image_path, datetime_year, datetime_month, datetime_day,
+                   amount, currency, bank_name, sender_name, recipient_name, source_app,
+                   ({has_issue_case}) AS has_issue
+            FROM slips
+            WHERE user_id = ?
+              AND (
+                    filename LIKE ? OR
+                    sender_name LIKE ? OR
+                    recipient_name LIKE ? OR
+                    bank_name LIKE ? OR
+                    source_app LIKE ?
+                  )
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (user_id, like_pattern, like_pattern, like_pattern, like_pattern, like_pattern, limit),
         ).fetchall()
         return [dict(r) for r in rows]
 

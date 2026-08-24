@@ -123,6 +123,21 @@ def index_row(row: dict, chroma_path: str = CHROMA_PATH) -> str:
     return doc_text
 
 
+def delete_row(filename: str, user_id: str, chroma_path: str = CHROMA_PATH) -> None:
+    """ลบ embedding ของสลิป 1 ไฟล์ออกจาก Chroma -- เพิ่ม 23 Aug 2026 คู่กับ
+    db/import_slips.py's delete_slip() ต้องเรียกคู่กันเสมอตอนลบสลิป ไม่งั้น
+    สลิปที่ลบไปแล้วจากฝั่ง SQLite อาจยังโผล่มาในคำตอบหน้า "Ask" (semantic
+    search) ได้อยู่ เพราะ Chroma ไม่รู้ว่าแถวนั้นถูกลบไปแล้ว
+
+    id ต้องประกอบด้วย user_id เหมือนตอน index_row() เป๊ะ ("{user_id}:{filename}")
+    ไม่งั้นจะลบผิด id หรือลบไม่ออกเลย เงียบๆ (Chroma .delete() ไม่ error ถ้า id
+    ไม่มีอยู่จริง จึงต้องระวังเรื่อง id format ให้ตรงกันเป็นพิเศษ)"""
+    client = chromadb.PersistentClient(path=chroma_path)
+    collection = client.get_or_create_collection(COLLECTION_NAME)
+    chroma_id = f"{user_id}:{filename}"
+    collection.delete(ids=[chroma_id])
+
+
 def main():
     rows = load_rows()
     if not rows:

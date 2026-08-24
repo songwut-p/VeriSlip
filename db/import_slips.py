@@ -124,9 +124,27 @@ def parse_datetime_raw(raw: str):
     return None, None, None
 
 
-def guess_source_app(filename: str, bank_name: str) -> str:
-    """heuristic คร่าวๆ จาก filename/bank_name — แก้ mapping ตรงนี้ได้ถ้าไม่ตรง"""
-    text = f"{filename or ''} {bank_name or ''}".lower()
+def guess_source_app(filename: str, bank_name: str, ocr_text: str | None = None) -> str:
+    """heuristic คร่าวๆ จาก filename/bank_name/ocr_text — แก้ mapping ตรงนี้ได้ถ้าไม่ตรง
+
+    เพิ่มพารามิเตอร์ ocr_text (optional, 23 Aug 2026): เดิมเช็คจาก filename +
+    bank_name เท่านั้น ซึ่งเคยใช้ได้กับ Make เพราะ bank_name ตอนนั้นเป็นขยะ
+    ("โอนเงินสำเร็จ                 make") ที่บังเอิญมีคำว่า "make" หลุดอยู่
+    -- พอ parse_bank_name() ถูกทำความสะอาดให้คืนค่าถูกต้อง ("KBank") คำว่า
+    "make" ก็หายไปจาก bank_name ด้วย ทำให้ Make ทุกไฟล์กลายเป็น "unknown"
+    (regression ที่เจอวันเดียวกัน 23 Aug 2026 ตอนทดสอบ dashboard จริง)
+
+    "KBank" อย่างเดียวแยกไม่ออกว่าเป็นแอป K+ หรือแอป Make (ธนาคารเดียวกัน
+    คนละแอป) เลยต้องหาสัญญาณคำว่า "make" จาก raw OCR text แทน (คำนี้ยังอยู่ใน
+    OCR text ดิบเสมอ แม้จะถูกกรองออกจาก bank_name ที่ทำความสะอาดแล้วก็ตาม)
+    ตรวจสอบแล้วว่าไม่มี false positive กับไฟล์ทดสอบจริง 22 ไฟล์ (ไม่มีไฟล์
+    ธนาคารอื่นที่ OCR text หลุดคำว่า make/true/dime/stkbml/fx/k+/kasikorn มา
+    โดยบังเอิญ)
+
+    ocr_text เป็น optional เพื่อ backward-compat กับ record เก่าที่ไม่มี field
+    นี้ (เช่น batch import จาก JSON เดิม) - ถ้าไม่ได้ส่งมา จะ fallback ไปใช้
+    filename+bank_name เหมือนเดิมทุกประการ"""
+    text = f"{filename or ''} {bank_name or ''} {ocr_text or ''}".lower()
     if "stkbml" in text or "dime" in text:
         return "Dime"
     if text.startswith("fx") or "fx20" in text:
@@ -137,6 +155,49 @@ def guess_source_app(filename: str, bank_name: str) -> str:
         return "Make"
     if "k+" in text or "kasikorn" in text:
         return "K+"
+
+    # ชื่อธนาคารไทยที่ parse_bank_name() คืนมา (ดู BANK_NAME_TOKENS ใน
+    # ocr/parse_slip.py) แม็ปไปยัง source_app -- เพิ่ม 23 Aug 2026
+    #
+    # พบว่า Krungthai/ออมสิน(GSB)/ttb/SCB/Krungsri ทุกไฟล์ยัง unknown หมด เพราะ
+    # จุดนี้เดิมไม่รู้จักชื่อธนาคารพวกนี้เลย เช็คแค่ filename pattern กับคำว่า
+    # make/truemoney/k+/kasikorn/dime เท่านั้น (SCB ยังคง unknown ต่อไปเพราะ
+    # bank_name เป็น None เสมอ - โลโก้เป็นรูปภาพ ไม่มีตัวอักษรให้อ่านเลย ไม่มี
+    # signal อะไรให้ใช้จริงๆ ไม่ใช่บั๊กที่จุดนี้)
+    #
+    # หมายเหตุ: ไม่รวม "กสิกรไทย"/"kasikorn"/"kbank" ไว้ในนี้ เพราะ bank_name
+    # เดียวกันนี้ใช้ร่วมกันทั้งแอป K+ และแอป Make (ธนาคารเดียวกัน คนละแอป) --
+    # ยังต้องพึ่ง check "k+"/"kasikorn" กับ "make" ด้านบน (และ filename-stem
+    # regex ด้านล่างสำหรับ K+) เพื่อแยกสองแอปนี้ต่อไป
+    #
+    # สำคัญ: dict นี้ค้นหาเฉพาะใน filename+bank_name (ตัวแปร app_identity_text
+    # ด้านล่าง) ไม่ใช่ text ที่รวม ocr_text เข้าไปด้วยเหมือน check อื่นข้างบน --
+    # เจอบั๊กจริงตอนทดสอบ (23 Aug 2026): สลิป K+ 2 ใบที่โอนไปหาบัญชี
+    # "ธ.เกียรตินาคินภัทร" (ธนาคารของ*ผู้รับ* ไม่ใช่แอปที่ใช้ทำรายการ) ทำให้
+    # ค้นเจอคำว่า "เกียรตินาคินภัทร" ใน ocr_text แล้วเข้าใจผิดว่า source_app
+    # คือ KKP ทั้งที่จริงคือ K+ -- OCR text ของสลิปโอนเงินมักมีชื่อธนาคารสอง
+    # ธนาคารเสมอ (ผู้โอน + ผู้รับ) เพราะงั้น dict ที่ map "ชื่อธนาคาร -> แอป"
+    # ต้องเช็คจาก bank_name field เท่านั้น (ซึ่ง parse_bank_name() ออกแบบมา
+    # ให้เป็นธนาคาร/แอปฝั่งผู้ทำรายการโดยเฉพาะอยู่แล้ว) ไม่ใช่ full OCR text
+    BANK_NAME_TO_APP = {
+        "กรุงไทย": "Krungthai", "krungthai": "Krungthai",
+        "ออมสิน": "GSB", "ธนาคารออมสิน": "GSB", "gsb": "GSB",
+        "ทหารไทยธนชาต": "ttb", "ธนชาต": "ttb", "ttb": "ttb", "tmb": "ttb",
+        "ไทยพาณิชย์": "SCB", "scb": "SCB",
+        "กรุงศรี": "Krungsri", "กรุงศรีอยุธยา": "Krungsri", "krungsri": "Krungsri",
+        "กรุงเทพ": "Bangkok Bank", "bangkok bank": "Bangkok Bank", "bbl": "Bangkok Bank",
+        "ยูโอบี": "UOB", "uob": "UOB",
+        "ซีไอเอ็มบี": "CIMB", "cimb": "CIMB",
+        "เกียรตินาคินภัทร": "KKP", "kkp": "KKP",
+        "ทิสโก้": "TISCO", "tisco": "TISCO",
+        "อาคารสงเคราะห์": "GHB",
+        "ไอซีบีซี": "ICBC",
+    }
+    app_identity_text = f"{filename or ''} {bank_name or ''}".lower()
+    for token, app_name in BANK_NAME_TO_APP.items():
+        if token in app_identity_text:
+            return app_name
+
     # K+ transaction-reference filenames มี pattern เสถียร: ขึ้นต้น "016" ตามด้วยตัวเลข
     # (บางไฟล์มี suffix ตัวอักษร 3 ตัว + ตัวเลขต่อท้าย เช่น "016206012606BOR03881",
     # "016214203541530151") -- ใช้ filename stem แทน bank_name เพราะ K+ ใช้ตัวเลข
@@ -187,7 +248,7 @@ def extract_record(record: dict, doc_type: str = "bank_slip", user_id: str = "de
             "recipient_account_issue": "not applicable for stock_confirmation",
             "transaction_id_issue": fields.get("order_id_issue"),
             "datetime_issue": fields.get("datetime_issue") or "stock parser ยังไม่ดึงวันที่ (backlog)",
-            "source_app": guess_source_app(filename, None),
+            "source_app": guess_source_app(filename, None, fields.get("ocr_text")),
             "doc_type": doc_type,
             "raw_json": json.dumps(fields, ensure_ascii=False),
         }
@@ -222,7 +283,7 @@ def extract_record(record: dict, doc_type: str = "bank_slip", user_id: str = "de
         "recipient_account_issue": fields.get("recipient_account_issue"),
         "transaction_id_issue": fields.get("transaction_id_issue"),
         "datetime_issue": fields.get("datetime_issue") or datetime_issue,
-        "source_app": guess_source_app(filename, fields.get("bank_name")),
+        "source_app": guess_source_app(filename, fields.get("bank_name"), fields.get("ocr_text")),
         "doc_type": doc_type,
         "raw_json": json.dumps(fields, ensure_ascii=False),
     }
@@ -264,13 +325,106 @@ def save_record(record: dict, doc_type: str = "bank_slip", user_id: str = "defau
     """
     บันทึก record เดียว (เช่น จาก API /save-slip) ลง SQLite
     reuse extract_record()/UPSERT_SQL เดียวกับ batch import เพื่อไม่ให้ logic ซ้ำซ้อน/ไม่ตรงกัน
+
+    เพิ่ม (24 Aug 2026): query id กลับมาใส่ใน row ที่ return ด้วย -- จำเป็น
+    สำหรับ flow ใหม่ที่ frontend ต้องรู้ id ทันทีหลัง save เพื่อเรียก
+    POST /slips/{id}/image ผูกรูปเข้า record นี้ต่อ (แยก endpoint ต่างหาก
+    ไม่ได้รวมเข้า UPSERT_SQL เพราะรูปแนบทีหลัง ไม่ใช่พร้อม save-slip เสมอไป)
+
+    ไม่แตะ image_path ใน UPSERT_SQL เลย -- แถวใหม่จะมี image_path เป็น NULL
+    ไปก่อนโดย default ของคอลัมน์ (ดู migration) แถวเดิมที่ upsert ทับ (conflict
+    filename+user_id) ก็ไม่ถูกแตะ image_path เดิมเลยเช่นกัน เพราะ image_path
+    ไม่ได้อยู่ใน DO UPDATE SET -- ข้อมูลรูปเดิม (ถ้ามี) จึงไม่หายเวลาแก้ไข field
+    อื่นแล้ว save ซ้ำ
     """
     row = extract_record(record, doc_type=doc_type, user_id=user_id)
     conn = sqlite3.connect(db_path)
     conn.execute(UPSERT_SQL, row)
+    cur = conn.execute(
+        "SELECT id FROM slips WHERE filename = ? AND user_id = ?",
+        (row["filename"], row["user_id"]),
+    )
+    row["id"] = cur.fetchone()[0]
     conn.commit()
     conn.close()
     return row
+
+
+def delete_slip(slip_id: int, user_id: str, db_path: str = DB_PATH):
+    """ลบสลิป 1 รายการออกจาก SQLite
+
+    เช็ค user_id ควบคู่กับ id เสมอ (WHERE id = ? AND user_id = ?) กัน user
+    หนึ่งลบข้อมูลของอีก user โดยเดา id มั่ว
+
+    เปลี่ยน (24 Aug 2026): คืนค่า (filename, image_path) แทนที่จะคืนแค่
+    filename เฉยๆ -- image_path เอาไว้ให้ผู้เรียก (main.py) ลบไฟล์รูปออกจาก
+    ดิสก์ด้วย กันไฟล์ค้างตอนลบ record ทิ้ง image_path อาจเป็น None ได้
+    (กรณี record นี้ยังไม่เคยแนบรูป) ผู้เรียกต้องเช็คก่อนลบไฟล์เสมอ
+
+    คืนค่า None ทั้งคู่ (คือ None ไม่ใช่ tuple) ถ้าไม่เจอแถวนั้น/ไม่ใช่ของ user นี้"""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT filename, image_path FROM slips WHERE id = ? AND user_id = ?",
+        (slip_id, user_id),
+    ).fetchone()
+    if row is None:
+        conn.close()
+        return None
+    filename, image_path = row["filename"], row["image_path"]
+    conn.execute("DELETE FROM slips WHERE id = ? AND user_id = ?", (slip_id, user_id))
+    conn.commit()
+    conn.close()
+    return filename, image_path
+
+
+def get_slip_owner_and_path(slip_id: int, db_path: str = DB_PATH):
+    """คืน (user_id, image_path) ของสลิปนี้ -- ใช้ตอน GET /slips/{id}/image
+    เพื่อเช็คว่า user ที่ขอดาวน์โหลดเป็นเจ้าของจริงไหม (เช็คที่ main.py หลัง
+    เรียกฟังก์ชันนี้ ไม่เชื่อ user_id จาก query param เพียงอย่างเดียว)
+
+    คืน (None, None) ถ้าไม่เจอ slip_id นี้เลย"""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT user_id, image_path FROM slips WHERE id = ?", (slip_id,)
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return None, None
+    return row["user_id"], row["image_path"]
+
+
+def set_slip_image_path(slip_id: int, user_id: str, image_path: str, db_path: str = DB_PATH):
+    """ผูก path รูปเข้ากับ record ที่มีอยู่แล้ว -- เรียกจาก POST /slips/{id}/image
+    หลังจาก /save-slip สำเร็จแล้วเท่านั้น (record ต้องมีอยู่ก่อน)
+
+    เช็ค user_id คู่กับ slip_id เสมอ (แพทเทิร์นเดียวกับ delete_slip()) กัน
+    user แนบรูปเข้า record ของคนอื่น
+
+    คืนค่า (True, old_image_path) ถ้าสำเร็จ -- old_image_path คือ path รูป
+    เดิมที่เคยผูกไว้ก่อนหน้า (None ถ้ายังไม่เคยมี) ผู้เรียกควรลบไฟล์เก่าทิ้ง
+    ถ้า old_image_path ไม่ใช่ None (กรณีอัปโหลดรูปซ้ำทับของเดิม กันไฟล์ค้าง)
+
+    คืนค่า (False, None) ถ้าไม่เจอแถวนั้น/ไม่ใช่ของ user นี้ -- ผู้เรียกควร
+    ลบไฟล์ที่เพิ่งเซฟไปแล้ว (เพราะไม่มีที่ให้ผูกจริง)"""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT image_path FROM slips WHERE id = ? AND user_id = ?",
+        (slip_id, user_id),
+    ).fetchone()
+    if row is None:
+        conn.close()
+        return False, None
+    old_image_path = row["image_path"]
+    conn.execute(
+        "UPDATE slips SET image_path = ? WHERE id = ? AND user_id = ?",
+        (image_path, slip_id, user_id),
+    )
+    conn.commit()
+    conn.close()
+    return True, old_image_path
 
 
 def main():
@@ -315,3 +469,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
