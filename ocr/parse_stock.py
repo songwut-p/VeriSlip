@@ -34,6 +34,24 @@ def _extract_by_prefix_shape(text: str, prefix: str) -> str | None:
     return m.group(1) + m.group(2)
 
 
+_SYMBOL_BLOCKLIST = {"THB", "USD", "VAT", "NASDAQ", "NYSE", "AMEX"}
+
+
+def _extract_symbol_near(text: str, anchor_pos: int, window: int = 40) -> str | None:
+    """หา symbol หุ้น (2-6 ตัวอักษรพิมพ์ใหญ่ล้วน) ที่อยู่ใกล้ตำแหน่ง anchor_pos
+    มากที่สุด (นับถอยหลังจาก anchor) -- ใช้เป็น fallback เมื่อ strict regex
+    รวม symbol+amount_thb ไม่ match (เช่น OCR ปนอักขระแปลกกับ symbol จนไม่
+    ตรง [A-Z]{2,6}) เพื่อกู้อย่างน้อย amount_thb ไว้ได้ แม้ symbol จะกู้ไม่ได้
+    ก็ตาม -- 25 Aug 2026"""
+    start = max(0, anchor_pos - window)
+    window_text = text[start:anchor_pos]
+    candidates = [
+        m.group(1) for m in re.finditer(r"\b([A-Z]{2,6})\b", window_text)
+        if m.group(1) not in _SYMBOL_BLOCKLIST
+    ]
+    return candidates[-1] if candidates else None
+
+
 def parse_stock_confirmation_text(ocr_text: str) -> dict:
     text = unicodedata.normalize("NFC", ocr_text)
     text = _fix_ocr_thai_am(text)
@@ -46,12 +64,29 @@ def parse_stock_confirmation_text(ocr_text: str) -> dict:
     # anchor on "ใช้ราคาตลาด (Market)" instead of "ซื้อ" -- "ซื้อ" gets
     # OCR-garbled to non-Thai junk ("do") unpredictably, independent
     # of match status
+    #
+    # ลอง strict pattern ก่อน (symbol+amount_thb ผูกกันในก้อนเดียว) --
+    # แม่นยำสุดตอน symbol อ่านถูก เพราะ [A-Z]{2,6} ช่วยกรอง noise ออก
     m = re.search(
         r"([A-Z]{2,6})\s*\n+\s*([\d,]+\.\d{2})\s*THB\s*\n+\s*ใช้ราคาตลาด",
         text,
     )
-    result["symbol"] = m.group(1) if m else None
-    result["amount_thb"] = m.group(2) if m else None
+    if m:
+        result["symbol"] = m.group(1)
+        result["amount_thb"] = m.group(2)
+    else:
+        # decouple: เดิม symbol+amount_thb ผูก regex เดียวกัน ถ้า OCR อ่าน
+        # symbol ผิด (มีอักขระแปลกปนจน [A-Z]{2,6} ไม่ match) ทั้งก้อนจะ fail
+        # ทำให้ amount_thb หายไปด้วยทั้งที่ตัวเลขอาจอ่านถูกสมบูรณ์ -- แยกดึง
+        # amount_thb เป็นอิสระ anchor แค่ตัวเลข+THB+"ใช้ราคาตลาด" ไม่พึ่ง
+        # symbol แล้วค่อยพยายามกู้ symbol แยกจากบริเวณใกล้ๆ -- 25 Aug 2026
+        amount_m = re.search(
+            r"([\d,]+\.\d{2})\s*THB\s*\n+\s*ใช้ราคาตลาด", text,
+        )
+        result["amount_thb"] = amount_m.group(1) if amount_m else None
+        result["symbol"] = (
+            _extract_symbol_near(text, amount_m.start()) if amount_m else None
+        )
 
     result["exchange"] = find(r"(NASDAQ|NYSE|AMEX)")
     result["order_type"] = find(r"ประเภทคำสั่ง[\s\S]{0,60}?\(([^)]+)\)")
