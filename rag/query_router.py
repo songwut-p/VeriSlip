@@ -43,7 +43,7 @@ ALLOWED_COLUMNS = {
     "transaction_id", "datetime_raw", "datetime_year", "datetime_month", "datetime_day",
     "bank_name_issue", "amount_issue", "sender_name_issue", "sender_account_issue",
     "recipient_name_issue", "recipient_account_issue", "transaction_id_issue", "datetime_issue",
-    "source_app", "doc_type", "raw_json", "created_at", "updated_at",
+    "source_app", "doc_type", "symbol", "raw_json", "created_at", "updated_at",
 }
 
 FORBIDDEN_KEYWORDS = [
@@ -290,6 +290,9 @@ SCHEMA_PROMPT = """คุณคือระบบแปลงคำถามภ�
   source_app (K+/Make/Dime/TrueMoney/unknown),
   doc_type (bank_slip/stock_confirmation) -- ถ้าคำถามพูดถึง "โอนเงิน" ให้กรอง doc_type='bank_slip'
   เสมอ ถ้าพูดถึง "หุ้น"/"ซื้อขาย" ให้กรอง doc_type='stock_confirmation'
+  symbol -- สัญลักษณ์หุ้น (เช่น MSFT, INTC, BLK) มีค่าเฉพาะแถวที่ doc_type='stock_confirmation'
+  เท่านั้น (เป็น NULL สำหรับ bank_slip) ถ้าคำถามถาม "ซื้อหุ้นอะไรบ้าง"/"หุ้นตัวไหนบ้าง"
+  ให้ SELECT DISTINCT symbol หรือ GROUP BY symbol พร้อมกรอง doc_type='stock_confirmation'
 
 กฎ:
 - ตอบกลับเป็น SQL query เดียวเท่านั้น ห้ามมีคำอธิบายอื่นปน ห้ามใช้ ```

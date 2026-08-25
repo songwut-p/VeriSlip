@@ -114,6 +114,15 @@ async def upload_slip(
 
         doc_type = classify_document(ocr_text)
         if doc_type == "stock_confirmation":
+            # 25 Aug 2026: preprocess=True (default ด้านบน) พบว่าทำลาย
+            # symbol หุ้นบางไฟล์จริง (เคสจริง: "INTC" ถูก dynamic-contrast
+            # ปรับจนอ่านเป็น "เงา0") -- OCR ซ้ำเฉพาะเอกสารหุ้นด้วย
+            # preprocess=False (raw) แล้วใช้ text ตัวใหม่นี้ทั้งพาร์สและคืน
+            # กลับ/บันทึก เพื่อให้ ocr_text ที่เก็บใน raw_json ตรงกับสิ่งที่
+            # พาร์สจริง ไม่แตะ path bank_slip เลย เพราะ preprocess=True
+            # (dynamic) ให้ผลดีกว่าสำหรับสลิปธนาคารตามที่ทดสอบไว้ใน
+            # ocr_test_summary.md -- แลกกับเวลาเพิ่ม ~10-20 วิ เฉพาะไฟล์หุ้น
+            ocr_text = ocr_image_to_text(tmp_path, preprocess=False)
             parsed = parse_stock_confirmation_text(ocr_text)
         elif doc_type == "bank_slip":
             parsed = hybrid_parse_slip_text(ocr_text)

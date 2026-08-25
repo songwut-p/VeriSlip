@@ -218,7 +218,11 @@ def extract_record(record: dict, doc_type: str = "bank_slip", user_id: str = "de
     if doc_type == "stock_confirmation":
         # ocr/parse_stock.py คืน dict คนละรูปร่างจาก bank slip parser --
         # map เฉพาะ field ที่ความหมายตรงกันเข้าคอลัมน์ generic ที่มีอยู่แล้ว
-        # ส่วนที่เหลือ (symbol/exchange/order_type ฯลฯ) อยู่ใน raw_json เท่านั้น
+        # ส่วนที่เหลือ (exchange/order_type ฯลฯ) อยู่ใน raw_json เท่านั้น
+        #
+        # symbol (25 Aug 2026): เดิมอยู่แค่ใน raw_json เหมือน field อื่นๆ
+        # แต่ /ask (LLM text-to-SQL) มองไม่เห็น field ที่ไม่มีคอลัมน์จริง
+        # ตอบ "ซื้อหุ้นอะไรบ้าง" ไม่ได้ -- เพิ่มเป็นคอลัมน์จริงโดยเฉพาะ
         amount = fields.get("amount_thb")
         try:
             amount = float(str(amount).replace(",", "")) if amount is not None else None
@@ -250,6 +254,7 @@ def extract_record(record: dict, doc_type: str = "bank_slip", user_id: str = "de
             "datetime_issue": fields.get("datetime_issue") or "stock parser ยังไม่ดึงวันที่ (backlog)",
             "source_app": guess_source_app(filename, None, fields.get("ocr_text")),
             "doc_type": doc_type,
+            "symbol": fields.get("symbol"),
             "raw_json": json.dumps(fields, ensure_ascii=False),
         }
         return row
@@ -285,6 +290,7 @@ def extract_record(record: dict, doc_type: str = "bank_slip", user_id: str = "de
         "datetime_issue": fields.get("datetime_issue") or datetime_issue,
         "source_app": guess_source_app(filename, fields.get("bank_name"), fields.get("ocr_text")),
         "doc_type": doc_type,
+        "symbol": None,
         "raw_json": json.dumps(fields, ensure_ascii=False),
     }
     return row
@@ -297,14 +303,14 @@ INSERT INTO slips (
     transaction_id, datetime_raw, datetime_year, datetime_month, datetime_day,
     bank_name_issue, amount_issue, sender_name_issue, sender_account_issue,
     recipient_name_issue, recipient_account_issue, transaction_id_issue, datetime_issue,
-    source_app, doc_type, raw_json, updated_at
+    source_app, doc_type, symbol, raw_json, updated_at
 ) VALUES (
     :filename, :user_id, :bank_name, :amount, :currency,
     :sender_name, :sender_account, :recipient_name, :recipient_account,
     :transaction_id, :datetime_raw, :datetime_year, :datetime_month, :datetime_day,
     :bank_name_issue, :amount_issue, :sender_name_issue, :sender_account_issue,
     :recipient_name_issue, :recipient_account_issue, :transaction_id_issue, :datetime_issue,
-    :source_app, :doc_type, :raw_json, CURRENT_TIMESTAMP
+    :source_app, :doc_type, :symbol, :raw_json, CURRENT_TIMESTAMP
 )
 -- conflict target ต้องเป็น (filename, user_id) คู่กัน ไม่ใช่ filename เฉยๆ:
 -- ถ้าใช้ filename อย่างเดียว user คนละคนอัปโหลดไฟล์ชื่อซ้ำกันจะเขียนทับข้อมูลกันเงียบๆ
@@ -318,7 +324,7 @@ ON CONFLICT(filename, user_id) DO UPDATE SET
     sender_name_issue=excluded.sender_name_issue, sender_account_issue=excluded.sender_account_issue,
     recipient_name_issue=excluded.recipient_name_issue, recipient_account_issue=excluded.recipient_account_issue,
     transaction_id_issue=excluded.transaction_id_issue, datetime_issue=excluded.datetime_issue,
-    source_app=excluded.source_app, doc_type=excluded.doc_type, raw_json=excluded.raw_json, updated_at=CURRENT_TIMESTAMP;
+    source_app=excluded.source_app, doc_type=excluded.doc_type, symbol=excluded.symbol, raw_json=excluded.raw_json, updated_at=CURRENT_TIMESTAMP;
 """
 
 def save_record(record: dict, doc_type: str = "bank_slip", user_id: str = "default", db_path: str = DB_PATH) -> dict:
