@@ -1,8 +1,13 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import shutil
 import tempfile
 from pathlib import Path
-
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from backend.schemas import RegisterRequest, LoginRequest, TokenResponse
+from backend.auth_utils import create_access_token, get_current_user
+from db.users import create_user, authenticate_user
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
 from fastapi.responses import FileResponse
 from pytesseract import TesseractError
 from backend.schemas import AskRequest, SaveSlipRequest, DeleteSlipRequest
@@ -36,8 +41,12 @@ app = FastAPI(title="AI Document Assistant API")
 def health():
     return {"status": "ok"}
 
+
 @app.get("/dashboard/summary")
-def dashboard_summary(user_id: str):
+def dashboard_summary(current_user: dict = Depends(get_current_user)):
+    # user_id ใช้ username จาก token เสมอ (ไม่ใช่ id ตัวเลข) เพื่อให้ตรงกับ
+    # ข้อมูลเก่าที่เคยบันทึกด้วย user_id แบบ free-text (เช่น "Ronova")
+    user_id = current_user["username"]
     return {
         "summary": get_summary_stats(user_id),
         "totals_by_app_bank_slip": get_totals_by_app(user_id, "bank_slip"),
@@ -48,15 +57,53 @@ def dashboard_summary(user_id: str):
 
 
 @app.get("/dashboard/search")
-def dashboard_search(user_id: str, query: str):
+def dashboard_search(query: str, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["username"]
     return {"results": search_slips(user_id, query, limit=20)}
 
 
+@app.post("/auth/register", response_model=TokenResponse)
+def register(req: RegisterRequest):
+    """สมัครสมาชิกใหม่ (username+password เท่านั้น ตามที่ตกลงกันไว้)
+    ล็อกอินให้อัตโนมัติหลังสมัครสำเร็จ (คืน token ทันที ไม่ต้องกลับไป
+    login ซ้ำอีกรอบ)"""
+    if len(req.password) < 8:
+        raise HTTPException(status_code=400, detail="รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร")
+
+    user = create_user(req.username, req.password)
+    if user is None:
+        raise HTTPException(status_code=409, detail="ชื่อผู้ใช้นี้มีคนใช้แล้ว")
+
+    token = create_access_token(user["id"], user["username"])
+    return TokenResponse(access_token=token, username=user["username"])
+
+
+@app.post("/auth/login", response_model=TokenResponse)
+def login(req: LoginRequest):
+    """ตรวจสอบ username+password คืน JWT ถ้าถูกต้อง"""
+    user = authenticate_user(req.username, req.password)
+    if user is None:
+        raise HTTPException(status_code=401, detail="ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
+
+    token = create_access_token(user["id"], user["username"])
+    return TokenResponse(access_token=token, username=user["username"])
+
+
+@app.get("/auth/me")
+def read_current_user(current_user: dict = Depends(get_current_user)):
+    """เช็คว่า token ยังใช้ได้อยู่ไหม (frontend เรียกตอนเปิดแอปมาใหม่ๆ
+    เพื่อเช็คว่า token ที่เก็บไว้ยัง valid หรือหมดอายุไปแล้ว)"""
+    return current_user
+
+
 @app.post("/upload-slip")
-async def upload_slip(file: UploadFile = File(...)):
-    # ไม่เปลี่ยนอะไรเลยจากเดิม -- ยังคง temp file แล้วลบทิ้งทันที ไม่เซฟถาวร
-    # ที่จุดนี้ เพราะยัง "ไม่ยืนยัน" ว่า user จะบันทึกจริง (ดู /slips/{id}/image
-    # ด้านล่างสำหรับจุดที่เซฟรูปถาวรจริง -- เซฟทีหลังตอน user กดยืนยันแล้ว)
+async def upload_slip(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    # ต้อง login ก่อนถึงเรียก OCR ได้ (กันคนนอกยิง endpoint นี้เล่นๆ เปลือง
+    # compute โดยไม่มีบัญชี) -- แต่ตัว endpoint เองยังไม่ persist อะไรเลย
+    # เหมือนเดิมทุกอย่าง (ยัง temp file แล้วลบทิ้งทันที ไม่เซฟถาวรที่นี่)
     suffix = Path(file.filename).suffix
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         shutil.copyfileobj(file.file, tmp)
@@ -84,12 +131,13 @@ async def upload_slip(file: UploadFile = File(...)):
 
 
 @app.post("/save-slip")
-async def save_slip(req: SaveSlipRequest):
-    # schema เดิมเป๊ะ ไม่เปลี่ยน -- save_record() คืน row ที่มี "id" ติดมาด้วย
-    # แล้ว (แก้ใน db/import_slips.py) ให้ frontend เอาไปเรียก
-    # POST /slips/{id}/image ต่อทันทีเพื่อแนบรูป
+async def save_slip(
+    req: SaveSlipRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    user_id = current_user["username"]
     record = {"filename": req.filename, "ocr_text": req.ocr_text, **req.parsed}
-    row = save_record(record, doc_type=req.doc_type, user_id=req.user_id)
+    row = save_record(record, doc_type=req.doc_type, user_id=user_id)
     doc_text = index_row(row)
     return {
         "filename": row["filename"],
@@ -100,14 +148,18 @@ async def save_slip(req: SaveSlipRequest):
 
 
 @app.post("/slips/{slip_id}/image")
-async def upload_slip_image(slip_id: int, user_id: str = Form(...), file: UploadFile = File(...)):
+async def upload_slip_image(
+    slip_id: int,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
     """แนบรูปต้นฉบับเข้ากับ record ที่ save ไปแล้ว -- เรียกจาก frontend ทันที
     หลัง /save-slip สำเร็จ (ไม่ใช่ตอน /upload-slip เพราะตอนนั้นยังไม่ยืนยัน)
 
-    ถ้า slip_id ไม่มีอยู่จริง/ไม่ใช่ของ user_id นี้ -- ลบไฟล์ที่เพิ่งเซฟทิ้ง
-    ทันที (กันไฟล์ค้างไม่มี record คู่) แล้วตอบ 404
-    ถ้า record นี้เคยมีรูปแนบอยู่แล้ว (อัปโหลดซ้ำทับ) -- ลบไฟล์เก่าทิ้งด้วย
-    กันไฟล์ค้าง"""
+    เปลี่ยน (25 Aug 2026): user_id ไม่รับจาก Form อีกต่อไป -- มาจาก token
+    (current_user["username"]) เท่านั้น ปิดช่องโหว่ที่ client เดิมส่ง
+    user_id เป็นใครก็ได้ผ่าน multipart form field"""
+    user_id = current_user["username"]
     image_path = await save_slip_image(file, user_id)
 
     ok, old_image_path = set_slip_image_path(slip_id, user_id, image_path)
@@ -122,35 +174,49 @@ async def upload_slip_image(slip_id: int, user_id: str = Form(...), file: Upload
 
 
 @app.get("/slips/{slip_id}/image")
-def download_slip_image(slip_id: int, user_id: str):
-    """ดาวน์โหลดรูปต้นฉบับของสลิป -- เช็คว่า slip_id นี้เป็นของ user_id
-    ที่ร้องขอจริง (ดึง owner จาก DB เทียบ ไม่เชื่อ user_id จาก query อย่างเดียว)"""
+def download_slip_image(
+    slip_id: int,
+    current_user: dict = Depends(get_current_user),
+):
+    """ดาวน์โหลดรูปต้นฉบับของสลิป -- เช็คว่า slip_id นี้เป็นของ user ที่
+    login อยู่จริง (เทียบกับ owner ที่ดึงจาก DB ไม่เชื่อ client อีกต่อไป)
+
+    เปลี่ยน (25 Aug 2026): user_id ไม่รับจาก query param อีกต่อไป -- มาจาก
+    token เท่านั้น (ปิดช่องโหว่เดิมที่ใครก็ใส่ ?user_id=คนอื่น ได้)"""
+    user_id = current_user["username"]
     owner_id, image_path = get_slip_owner_and_path(slip_id)
     path = get_slip_image_path(image_path, owner_user_id=owner_id, requesting_user_id=user_id)
     return FileResponse(path)
 
 
 @app.post("/delete-slip")
-async def delete_slip_endpoint(req: DeleteSlipRequest):
-    """ลบสลิป 1 รายการ -- ลบทั้ง SQLite, Chroma, และตอนนี้ลบไฟล์รูปบนดิสก์
-    ด้วย (ถ้ามี) เช็ค user_id คู่กับ slip_id เสมอผ่าน delete_slip() กัน user
-    ลบข้อมูลของ user อื่น"""
-    result = delete_slip(req.slip_id, req.user_id)
+async def delete_slip_endpoint(
+    req: DeleteSlipRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """ลบสลิป 1 รายการ -- ลบทั้ง SQLite, Chroma, และไฟล์รูปบนดิสก์ (ถ้ามี)
+    เช็คความเป็นเจ้าของด้วย user_id จาก token เสมอ (ไม่ใช่จาก client อีกแล้ว)"""
+    user_id = current_user["username"]
+    result = delete_slip(req.slip_id, user_id)
     if result is None:
         raise HTTPException(status_code=404, detail="ไม่พบรายการนี้ หรือไม่ใช่ของผู้ใช้นี้")
 
     filename, image_path = result
-    delete_row(filename, req.user_id)
+    delete_row(filename, user_id)
     delete_slip_image(image_path)  # เงียบๆ ถ้า image_path เป็น None อยู่แล้ว
 
     return {"status": "deleted", "slip_id": req.slip_id, "filename": filename}
 
 
 @app.post("/ask")
-async def ask(req: AskRequest):
+async def ask(
+    req: AskRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    user_id = current_user["username"]
     result = answer_question(
         req.question,
-        req.user_id,
+        user_id,
         llm_call_fn=call_ollama_for_sql,
         semantic_search_fn=semantic_search,
     )

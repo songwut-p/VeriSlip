@@ -39,9 +39,8 @@ st.set_page_config(page_title="AI Document Assistant", page_icon="🧾")
 st.title("AI Document Assistant")
 
 
-
 @st.dialog("ยืนยันการบันทึก")
-def confirm_save_dialog(final_parsed: dict, upload: dict, user_id: str):
+def confirm_save_dialog(final_parsed: dict, upload: dict):
     """Popup ให้ตรวจค่าที่จะบันทึกอีกครั้งก่อนยิง API จริง -- เพิ่ม 23 Aug 2026
     เพื่อแก้ปัญหา st.form submit ตอนกด Enter ในช่อง text_input เดียวขณะยัง
     แก้ field อื่นไม่ครบ (Streamlit's built-in 'Press Enter to submit form'
@@ -53,14 +52,12 @@ def confirm_save_dialog(final_parsed: dict, upload: dict, user_id: str):
         if not k.endswith("_issue") and k not in {"datetime_parsed", "extraction_source"}
     ]
     st.table(preview_rows)
-
     col1, col2 = st.columns(2)
     if col1.button("✅ ยืนยันบันทึก", use_container_width=True):
         payload = {
             "filename": upload["filename"],
             "doc_type": upload["doc_type"],
             "parsed": final_parsed,
-            "user_id": user_id,
             "ocr_text": upload.get("ocr_text"),
         }
         save_result = call_api(
@@ -74,7 +71,6 @@ def confirm_save_dialog(final_parsed: dict, upload: dict, user_id: str):
                 call_api(
                     "POST", f"/slips/{slip_id}/image",
                     spinner_text="กำลังบันทึกรูปต้นฉบับ...",
-                    data={"user_id": user_id},
                     files={"file": (
                         upload.get("_file_name", "slip.jpg"),
                         upload["_file_bytes"],
@@ -90,7 +86,7 @@ def confirm_save_dialog(final_parsed: dict, upload: dict, user_id: str):
 
 
 @st.dialog("ยืนยันการลบ")
-def confirm_delete_dialog(slip_id: int, filename: str, user_id: str):
+def confirm_delete_dialog(slip_id: int, filename: str):
     """Popup เตือนก่อนลบสลิปออกจาก DB จริง -- เพิ่ม 23 Aug 2026 ตามคำขอ
     (กรณีอัปโหลดไฟล์ผิด อยากลบทิ้ง) ลบแล้วย้อนกลับไม่ได้ (ลบทั้ง SQLite และ
     Chroma embedding ที่ backend, ไม่ใช่แค่ซ่อนออกจากหน้าจอ) จึงต้องมี popup
@@ -104,7 +100,7 @@ def confirm_delete_dialog(slip_id: int, filename: str, user_id: str):
         result = call_api(
             "POST", "/delete-slip",
             spinner_text="กำลังลบข้อมูล...",
-            json={"slip_id": slip_id, "user_id": user_id},
+            json={"slip_id": slip_id},
         )
         if result is not None:
             st.session_state["delete_success"] = result.get("filename", filename)
@@ -112,17 +108,18 @@ def confirm_delete_dialog(slip_id: int, filename: str, user_id: str):
     if col2.button("ยกเลิก", use_container_width=True):
         st.rerun()
 
-def render_slip_row(r: dict, user_id: str):
+
+def render_slip_row(r: dict):
     icon = "⚠️" if r["has_issue"] else "✅"
     if r["doc_type"] == "stock_confirmation":
         label = f"{r['source_app']} stock order"
     else:
         label = r["recipient_name"] or r["sender_name"] or "ไม่ทราบชื่อ"
     amount_text = f"{r['amount']:.2f} {r['currency']}" if r["amount"] is not None else "ไม่ทราบยอด"
- 
+
     col1, col2, col3 = st.columns([9, 1, 1])
     col1.write(f"{icon} **{r['filename']}** ({r['doc_type']}, {r['source_app']}) — {label} — {amount_text}")
- 
+
     # ปุ่มดาวน์โหลด -- โชว์เฉพาะถ้ามีรูปแนบ (image_path ไม่ว่าง)
     if r.get("image_path"):
         dl_key = f"dl_bytes_{r['id']}"
@@ -130,7 +127,7 @@ def render_slip_row(r: dict, user_id: str):
             if col2.button("⬇️", key=f"fetch_{r['id']}", help="โหลดรูปต้นฉบับ"):
                 resp = requests.get(
                     f"{API_BASE}/slips/{r['id']}/image",
-                    params={"user_id": user_id},
+                    headers=auth_headers(),
                     timeout=30,
                 )
                 if resp.ok:
@@ -143,25 +140,85 @@ def render_slip_row(r: dict, user_id: str):
                 "💾", data=st.session_state[dl_key],
                 file_name=r["filename"], key=f"save_{r['id']}",
             )
- 
+
     if col3.button("🗑️", key=f"delete_{r['id']}", help="ลบรายการนี้ออกจากฐานข้อมูล"):
-        confirm_delete_dialog(r["id"], r["filename"], user_id)
+        confirm_delete_dialog(r["id"], r["filename"])
 
-# PoC เท่านั้น: user_id เป็นแค่ string ที่พิมพ์เอง ไม่มี auth/password จริง
-# ใช้เพื่อทดสอบว่าข้อมูลแยกกันถูกต้องตอนมีหลายคนใช้พร้อมกัน (ไม่ใช่ระบบความปลอดภัยจริง)
-if "user_id" not in st.session_state:
-    st.session_state["user_id"] = ""
 
-with st.sidebar:
-    st.session_state["user_id"] = st.text_input(
-        "ชื่อผู้ใช้ (สำหรับทดสอบ)", value=st.session_state["user_id"]
-    )
+# ===== ระบบ auth จริง (JWT) -- แทนที่ PoC user_id (free-text, ไม่มีรหัสผ่าน) เดิม (25 Aug 2026) =====
+if "access_token" not in st.session_state:
+    st.session_state["access_token"] = None
+if "username" not in st.session_state:
+    st.session_state["username"] = None
 
-if not st.session_state["user_id"]:
-    st.warning("กรุณาใส่ชื่อผู้ใช้ในแถบด้านซ้ายก่อนใช้งาน")
+
+def auth_headers():
+    token = st.session_state.get("access_token")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def auth_request(method: str, path: str, **kwargs):
+    """เรียก /auth/* endpoint ตรงๆ (ไม่ผ่าน call_api เพราะตอนนี้ยังไม่มี token
+    และไม่ต้องการ spinner ยาวแบบ endpoint อื่น)"""
+    try:
+        fn = requests.get if method == "GET" else requests.post
+        resp = fn(f"{API_BASE}{path}", timeout=30, **kwargs)
+        if resp.ok:
+            return resp.json(), None
+        try:
+            detail = resp.json().get("detail", resp.text)
+        except ValueError:
+            detail = resp.text
+        return None, detail
+    except requests.exceptions.ConnectionError:
+        return None, "เชื่อมต่อ backend ไม่ได้ — เช็คว่า `uvicorn backend.main:app --reload` รันอยู่หรือไม่"
+    except requests.exceptions.RequestException as e:
+        return None, str(e)
+
+
+if not st.session_state["access_token"]:
+    st.sidebar.subheader("เข้าสู่ระบบ")
+    auth_mode = st.sidebar.radio("โหมด", ["เข้าสู่ระบบ", "สมัครสมาชิก"], key="auth_mode")
+    with st.sidebar.form("auth_form"):
+        auth_username = st.text_input("ชื่อผู้ใช้")
+        auth_password = st.text_input("รหัสผ่าน", type="password")
+        auth_submitted = st.form_submit_button(auth_mode)
+
+    if auth_submitted:
+        if not auth_username or not auth_password:
+            st.sidebar.error("กรุณากรอกชื่อผู้ใช้และรหัสผ่าน")
+        elif auth_mode == "สมัครสมาชิก":
+            _, error = auth_request(
+                "POST", "/auth/register",
+                json={"username": auth_username, "password": auth_password},
+            )
+            if error:
+                st.sidebar.error(f"สมัครสมาชิกไม่สำเร็จ: {error}")
+            else:
+                st.sidebar.success("สมัครสมาชิกสำเร็จ — กรุณาเข้าสู่ระบบ")
+        else:
+            result, error = auth_request(
+                "POST", "/auth/login",
+                json={"username": auth_username, "password": auth_password},
+            )
+            if error:
+                st.sidebar.error(f"เข้าสู่ระบบไม่สำเร็จ: {error}")
+            else:
+                st.session_state["access_token"] = result["access_token"]
+                st.session_state["username"] = auth_username
+                st.rerun()
+
+    st.warning("กรุณาเข้าสู่ระบบในแถบด้านซ้ายก่อนใช้งาน")
     st.stop()
 
-user_id = st.session_state["user_id"]
+with st.sidebar:
+    st.caption(f"เข้าสู่ระบบในชื่อ: **{st.session_state['username']}**")
+    if st.button("ออกจากระบบ"):
+        st.session_state["access_token"] = None
+        st.session_state["username"] = None
+        st.rerun()
+    st.divider()
+# ===== จบส่วน auth =====
 
 # เช็คว่ามีคิวเดิมค้างอยู่ไหม (ยังมีไฟล์ในคิว หรือกำลังตรวจไฟล์ปัจจุบันอยู่) --
 # ต้องเช็คตรงนี้ (ก่อนเลือกหน้า) ไม่ใช่แค่ในหน้า "Upload Slip" เพราะ 23 Aug 2026
@@ -169,11 +226,14 @@ user_id = st.session_state["user_id"]
 # เหมือนกับกดปุ่ม "อัปโหลด" ซ้ำ -- ต้องบล็อกการสลับหน้าด้วย ไม่ใช่แค่ปุ่มเดียว
 queue_in_progress = bool(st.session_state.get("upload_queue")) or "current_upload" in st.session_state
 
+
 def call_api(method: str, path: str, spinner_text: str, **kwargs):
+    headers = kwargs.pop("headers", {})
+    headers.update(auth_headers())
     try:
         with st.spinner(spinner_text):
             fn = requests.get if method == "GET" else requests.post
-            resp = fn(f"{API_BASE}{path}", timeout=120, **kwargs)
+            resp = fn(f"{API_BASE}{path}", timeout=120, headers=headers, **kwargs)
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.ConnectionError:
@@ -185,7 +245,13 @@ def call_api(method: str, path: str, spinner_text: str, **kwargs):
             detail = resp.json()
         except ValueError:
             detail = resp.text
-        st.error(f"Backend error ({resp.status_code}): {detail}")
+        if resp.status_code == 401:
+            st.session_state["access_token"] = None
+            st.session_state["username"] = None
+            st.error("เซสชันหมดอายุหรือยังไม่ได้เข้าสู่ระบบ กรุณาเข้าสู่ระบบใหม่")
+            st.rerun()
+        else:
+            st.error(f"Backend error ({resp.status_code}): {detail}")
     except requests.exceptions.RequestException as e:
         st.error(f"เรียก API ไม่สำเร็จ: {e}")
     return None
@@ -204,7 +270,6 @@ if page == "Upload Slip":
         type=["png", "jpg", "jpeg"],
         accept_multiple_files=True,
     )
-
     # queue_in_progress คำนวณไว้แล้วด้านบน (ก่อนเลือกหน้า) ใช้ตัวเดียวกันซ้ำที่นี่
     # 23 Aug 2026: เดิมใช้ st.dialog เป็น popup เตือน + ปุ่ม "ตกลง" แต่พบว่า
     # แก้ปัญหาผิดจุด -- Streamlit จะ "ขัดจังหวะ" (interrupt) การรันสคริปต์ที่
@@ -225,9 +290,7 @@ if page == "Upload Slip":
             f"⏳ กำลังประมวลผลไฟล์ในคิวอยู่ ({queue_done}/{queue_total}) — "
             f"ปุ่มอัปโหลดไฟล์ชุดใหม่จะกดได้อีกครั้งหลังคิวปัจจุบันเสร็จ"
         )
-
     upload_clicked = st.button("อัปโหลด", disabled=queue_in_progress)
-
     if uploaded_files and upload_clicked and not queue_in_progress:
         # เริ่มคิวใหม่ -- เก็บ bytes/name/type ของทุกไฟล์ที่เลือกไว้ (ยกเว้นไฟล์
         # แรกซึ่งจะถูกดึงไปเข้า OCR ทันทีในบล็อกถัดไปด้านล่าง) เพิ่ม 23 Aug 2026
@@ -243,7 +306,6 @@ if page == "Upload Slip":
         st.session_state["queue_done"] = 0
         st.session_state.pop("current_upload", None)
         st.session_state.pop("batch_complete", None)
-
     # ดึงไฟล์ถัดไปจากคิวมาเข้า OCR อัตโนมัติ เมื่อไม่มีไฟล์ไหนค้างรอตรวจสอบอยู่
     # (current_upload ว่าง) แต่คิวยังไม่หมด -- แทนที่การรอให้ user กดปุ่ม
     # "เลือกไฟล์" ใหม่ทุกรอบเหมือนเดิม
@@ -276,7 +338,6 @@ if page == "Upload Slip":
             result["_file_type"] = next_file["type"]
             st.session_state["current_upload"] = result
             st.session_state["upload_queue"].pop(0)  # ลบออกก็ต่อเมื่อสำเร็จแล้ว
-
     # กันเคสค้าง (orphaned state): คิวว่าง + ไม่มีไฟล์กำลังตรวจ แต่ยังบันทึกไม่
     # ครบตามจำนวนที่ตั้งใจไว้ -- ปกติไม่ควรเกิดขึ้นแล้วหลังแก้ peek-before-pop
     # ด้านบน แต่เผื่อไว้เป็น safety net ถ้ามีสาเหตุอื่นที่ยังไม่เจอ จะได้ไม่ค้าง
@@ -298,43 +359,35 @@ if page == "Upload Slip":
         )
         for key in ("upload_queue", "queue_total", "queue_done", "batch_complete"):
             st.session_state.pop(key, None)
-
     if queue_total > 1 and not is_orphaned:
         current_num = queue_done + 1 if "current_upload" in st.session_state else queue_done
         st.info(f"📦 ไฟล์ {current_num}/{queue_total} ในคิว")
-
     if "current_upload" in st.session_state:
         upload = st.session_state["current_upload"]
         parsed = upload.get("parsed", {})
-
         doc_type_labels = {
             "bank_slip": "สลิปโอนเงิน",
             "stock_confirmation": "ใบยืนยันซื้อหุ้น",
         }
         label = doc_type_labels.get(upload["doc_type"], upload["doc_type"])
         st.success(f"อ่านไฟล์สำเร็จ — ตรวจพบว่าเป็น: **{label}**")
-
         INTERNAL_FIELDS = {"datetime_parsed", "extraction_source"}
         display_fields = {
             k: v for k, v in parsed.items()
             if not k.endswith("_issue") and k not in INTERNAL_FIELDS
         }
-
         issue_fields = {k: v for k, v in parsed.items() if k.endswith("_issue") and v}
         if issue_fields:
             with st.expander(f"⚠️ พบข้อมูลไม่ครบ {len(issue_fields)} จุด"):
                 for k, v in issue_fields.items():
                     st.write(f"- **{k}**: {v}")
-
         # ฟิลด์ที่เป็นตัวเลข -- ต้องพยายามแปลงกลับเป็น float ตอนบันทึก
         NUMERIC_FIELDS = {
             "amount", "amount_thb", "amount_usd", "exchange_rate",
             "stock_value_thb", "commission_thb", "vat_thb", "price_usd", "shares",
         }
-
         st.subheader("ตรวจสอบและแก้ไขข้อมูล")
         st.caption("ค่าด้านล่างมาจาก OCR — ถ้าอ่านผิด แก้ในช่องได้ก่อนกดบันทึก")
-
         if display_fields:
             # key ผูกกับ filename เพื่อให้ฟอร์มรีเซ็ตค่าใหม่ทุกครั้งที่เลื่อนไปไฟล์
             # ถัดไปในคิว (ไม่งั้น Streamlit จะจำค่าฟอร์มเดิมของไฟล์ก่อนหน้าค้างไว้)
@@ -346,7 +399,6 @@ if page == "Upload Slip":
                         value="" if v is None else str(v),
                     )
                 save_clicked = st.form_submit_button("บันทึกลงฐานข้อมูล")
-
             if save_clicked:
                 final_parsed = dict(parsed)
                 has_error = False
@@ -362,10 +414,8 @@ if page == "Upload Slip":
                             has_error = True
                     else:
                         final_parsed[k] = raw_value
-
                 if not has_error:
-                    confirm_save_dialog(final_parsed, upload, user_id)
-
+                    confirm_save_dialog(final_parsed, upload)
     if "save_result" in st.session_state:
         save_result = st.session_state["save_result"]
         row = save_result.get("db_row", {})
@@ -374,7 +424,6 @@ if page == "Upload Slip":
         col1.metric("ยอดเงิน", f"{row['amount']:,.2f} {row.get('currency') or ''}" if row.get("amount") is not None else "ไม่ทราบยอด")
         col2.metric("ประเภทเอกสาร", "สลิปโอนเงิน" if row.get("doc_type") == "bank_slip" else "ใบยืนยันซื้อหุ้น")
         del st.session_state["save_result"]
-
     # ขึ้นสรุปครั้งเดียวตอนคิวหมด (บันทึกครบทุกไฟล์ในชุดที่เลือกไว้แล้ว) --
     # batch_complete กันไม่ให้ข้อความค้างแสดงซ้ำทุกครั้งที่หน้ารีเฟรชหลังจากนั้น
     if (
@@ -387,68 +436,52 @@ if page == "Upload Slip":
         st.success(f"🎉 บันทึกครบ {queue_total}/{queue_total} ไฟล์แล้ว")
         st.session_state["batch_complete"] = True
 
-
-
-
 elif page == "Ask":
     st.header("ถามคำถามเกี่ยวกับสลิป")
     with st.form("ask_form"):
         question = st.text_input("คำถาม")
         submitted = st.form_submit_button("ถาม")
-
     if submitted and question:
         result = call_api(
             "POST", "/ask",
             spinner_text="กำลังค้นหาคำตอบ (pattern → semantic → LLM-SQL)...",
-            json={"question": question, "user_id": user_id},
+            json={"question": question},
         )
         if result is not None:
             mode = result.get("mode")
-
             if mode in ("pattern", "llm_sql"):
                 rows = result.get("rows", [])
                 if rows:
                     st.table(rows)
                 else:
                     st.info("ไม่พบข้อมูลที่ตรงกับคำถาม")
-
             elif mode == "semantic":
                 matches = result.get("matches", [])
                 for m in matches:
                     st.write(f"📄 **{m['filename']}** — {m['document']}")
-
             elif mode == "no_confident_match":
                 st.info("ไม่พบสลิปที่ตรงกับคำถามนี้อย่างมั่นใจ")
-
             elif mode == "no_match":
                 st.warning("ไม่เข้าใจคำถามนี้ ลองถามในรูปแบบอื่นดูครับ")
-
             elif mode == "rejected":
                 st.error("ไม่สามารถตอบคำถามนี้ได้ (คำถามอาจไม่ปลอดภัย)")
-
             elif mode == "sql_error":
                 st.error("เกิดข้อผิดพลาดขณะค้นหาข้อมูล")
-
             else:
                 st.warning("ไม่สามารถแสดงผลลัพธ์ของคำถามนี้ได้")
 
 elif page == "Dashboard":
     st.header("แดชบอร์ดสรุปข้อมูล")
-
     data = call_api(
         "GET", "/dashboard/summary",
         spinner_text="กำลังโหลดข้อมูลแดชบอร์ด...",
-        params={"user_id": user_id},
     )
-
     if data is not None:
         summary = data["summary"]
-
         col1, col2, col3 = st.columns(3)
         col1.metric("เอกสารทั้งหมด", summary["total"])
         col2.metric("ครบถ้วน", summary["complete"])
         col3.metric("มีปัญหาบางส่วน", summary["has_issue"])
-
         st.subheader("แยกตามประเภทเอกสาร")
         doc_type_labels = {
             "bank_slip": "สลิปโอนเงิน",
@@ -458,7 +491,6 @@ elif page == "Dashboard":
         cols = st.columns(len(by_doc_type)) if by_doc_type else []
         for col, (doc_type, count) in zip(cols, by_doc_type.items()):
             col.metric(doc_type_labels.get(doc_type, doc_type), count)
-
         st.subheader("ยอดรวมตามแอป (เฉพาะสลิปโอนเงิน)")
         totals_app = data["totals_by_app_bank_slip"]
         if totals_app:
@@ -485,7 +517,6 @@ elif page == "Dashboard":
             st.table(totals_app)
         else:
             st.info("ยังไม่มีข้อมูลสลิปโอนเงิน")
-
         st.subheader("แนวโน้มรายเดือน (สลิปโอนเงิน)")
         trend = data["trend_by_month_bank_slip"]
         if trend:
@@ -508,20 +539,16 @@ elif page == "Dashboard":
             st.table(trend)
         else:
             st.info("ยังไม่มีข้อมูลแนวโน้ม")
-
         st.subheader("สรุปการซื้อหุ้น (ตาม symbol)")
         stock = data["stock_summary"]
         if stock:
             st.table(stock)
         else:
             st.info("ยังไม่มีข้อมูลการซื้อหุ้น")
-
         st.subheader("รายการล่าสุด")
-
         if st.session_state.get("delete_success"):
             st.success(f"ลบ {st.session_state['delete_success']} เรียบร้อยแล้ว")
             del st.session_state["delete_success"]
-
         # search bar ค้นทั่ว DB (ไม่ใช่แค่ในรายการล่าสุด 5 ไฟล์) -- เพิ่ม
         # 23 Aug 2026 คู่กับปุ่มลบ เพราะไฟล์ที่อัปโหลดผิดอาจหลุดจาก "ล่าสุด"
         # ไปแล้ว (ตอนนี้จำกัดแค่ 5 รายการ กันหน้า Dashboard รกเกินไป)
@@ -529,24 +556,24 @@ elif page == "Dashboard":
             "🔍 ค้นหาสลิป (ชื่อไฟล์ / ชื่อผู้โอน-ผู้รับ / ธนาคาร-แอป)",
             key="dashboard_search",
         )
-
         if search_query.strip():
             search_result = call_api(
                 "GET", "/dashboard/search",
                 spinner_text="กำลังค้นหา...",
-                params={"user_id": user_id, "query": search_query.strip()},
+                params={"query": search_query.strip()},
             )
             results = search_result.get("results", []) if search_result is not None else []
             if results:
                 st.caption(f"พบ {len(results)} รายการ")
                 for r in results:
-                    render_slip_row(r, user_id)
+                    render_slip_row(r)
             else:
                 st.info("ไม่พบรายการที่ตรงกับคำค้นหา")
         else:
             recent = data["recent_slips"]
             if recent:
                 for r in recent:
-                    render_slip_row(r, user_id)
+                    render_slip_row(r)
             else:
                 st.info("ยังไม่มีรายการ")
+                
