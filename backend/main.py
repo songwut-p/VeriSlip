@@ -21,6 +21,7 @@ from db.import_slips import (
     get_slip_owner_and_path,
     set_slip_image_path,
 )
+from db.audit_log import log_upload, log_delete  # เพิ่ม 26 Aug 2026 -- audit log
 from rag.build_index import index_row, delete_row
 from rag.query_router import answer_question
 from rag.llm_sql import call_ollama_for_sql
@@ -148,6 +149,11 @@ async def save_slip(
     record = {"filename": req.filename, "ocr_text": req.ocr_text, **req.parsed}
     row = save_record(record, doc_type=req.doc_type, user_id=user_id)
     doc_text = index_row(row)
+
+    # audit log (26 Aug 2026): บันทึกว่า user นี้ upload record นี้เมื่อไหร่
+    # ไม่มี snapshot เพราะไม่มี "ก่อน" ให้เทียบ (ดู db/audit_log.py)
+    log_upload(user_id, row["id"], row["filename"], req.doc_type)
+
     return {
         "filename": row["filename"],
         "status": "saved",
@@ -204,13 +210,23 @@ async def delete_slip_endpoint(
     current_user: dict = Depends(get_current_user),
 ):
     """ลบสลิป 1 รายการ -- ลบทั้ง SQLite, Chroma, และไฟล์รูปบนดิสก์ (ถ้ามี)
-    เช็คความเป็นเจ้าของด้วย user_id จาก token เสมอ (ไม่ใช่จาก client อีกแล้ว)"""
+    เช็คความเป็นเจ้าของด้วย user_id จาก token เสมอ (ไม่ใช่จาก client อีกแล้ว)
+
+    เปลี่ยน (26 Aug 2026 -- เพิ่ม audit log): delete_slip() คืนค่า 3 ตัว
+    (filename, image_path, snapshot) แทน 2 ตัวเดิม -- snapshot เก็บเข้า
+    audit_log ก่อนลบไฟล์รูป/ลบออกจาก Chroma ต่อ (DB record ถูกลบไปแล้วใน
+    delete_slip() ตอนนี้เหลือแค่ลบส่วนที่เหลือ + log ไว้)"""
     user_id = current_user["username"]
     result = delete_slip(req.slip_id, user_id)
     if result is None:
         raise HTTPException(status_code=404, detail="ไม่พบรายการนี้ หรือไม่ใช่ของผู้ใช้นี้")
 
-    filename, image_path = result
+    filename, image_path, snapshot = result
+
+    # audit log (26 Aug 2026): เก็บ snapshot เต็มแถวไว้เผื่อกู้คืน
+    # (ผู้ใช้ไม่เห็นเลย -- ยังคงข้อความเตือนแบบเดิมฝั่ง frontend)
+    log_delete(user_id, snapshot)
+
     delete_row(filename, user_id)
     delete_slip_image(image_path)  # เงียบๆ ถ้า image_path เป็น None อยู่แล้ว
 

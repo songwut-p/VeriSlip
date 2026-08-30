@@ -36,7 +36,62 @@ FIELD_LABELS = {
 }
 
 st.set_page_config(page_title="AI Document Assistant", page_icon="🧾")
-st.title("AI Document Assistant")
+
+# CSS ปรับแต่งหน้าตา (30 Aug 2026) -- ไม่แตะ logic ใดๆ เลย แค่ style เดิม
+# ตกลงกันไว้ว่าคงโครงสร้างเดิมทั้งหมด (sidebar/ตำแหน่งต่างๆ) เปลี่ยนแค่ 2 จุด:
+# (1) กล่อง "เข้าสู่ระบบในชื่อ" ให้เด่นขึ้น (มีกรอบ/สี แทนตัวหนังสือเรียบๆ)
+# (2) ขยายขนาดตัวอักษรเมนู (Upload Slip/Ask/Dashboard) ให้ใหญ่ขึ้น
+st.markdown("""
+<style>
+/* กล่องข้อมูลผู้ใช้ที่ล็อกอินอยู่ -- แทนที่ st.caption เดิมด้วย div มีกรอบ */
+.user-info-box {
+    background-color: rgba(77, 208, 225, 0.08);
+    border: 1px solid rgba(77, 208, 225, 0.4);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+}
+.user-info-box .user-info-label {
+    font-size: 0.8rem;
+    color: #9aa0b4;
+    display: block;
+    margin-bottom: 2px;
+}
+.user-info-box .user-info-name {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #4dd0e1;
+}
+
+/* ขยายขนาดเมนูสลับหน้า (Upload Slip / Ask / Dashboard) ใน sidebar */
+[data-testid="stSidebarUserContent"] div[role="radiogroup"] label p {
+    font-size: 1.1rem !important;
+}
+[data-testid="stSidebarUserContent"] div[role="radiogroup"] label {
+    padding: 4px 0;
+}
+
+/* ขยาย max-width ของพื้นที่เนื้อหาหลัก (30 Aug 2026) -- ค่า default ของ
+Streamlit จำกัดไว้แค่ ~730px เสมอไม่ว่าจอจะกว้างแค่ไหน ทำให้ตอน sidebar
+ยุบหายไป (หน้า login ก่อน login) เหลือพื้นที่ว่างโล่งมากทั้งสองข้าง --
+ขยายเป็น 1100px ให้เนื้อหาดูเต็มพื้นที่ขึ้น มีผลทั้งก่อนและหลัง login
+(ตาราง Dashboard ก็จะกว้างขึ้นตามไปด้วย ซึ่งเป็นผลดีเช่นกัน) */
+.block-container {
+    max-width: 1100px !important;
+}
+
+/* ขยายขนาดตัวอักษรใน text input และปุ่มเล็กน้อยทั่วทั้งแอป (30 Aug 2026) --
+ให้เข้ากับ container ที่กว้างขึ้น ไม่ให้องค์ประกอบดูเล็ก/โล่งเกินไป */
+.stTextInput input {
+    font-size: 1.05rem !important;
+    padding: 10px 12px !important;
+}
+.stButton button, div[data-testid="stFormSubmitButton"] button {
+    font-size: 1.05rem !important;
+    padding: 8px 22px !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 
 @st.dialog("ยืนยันการบันทึก")
@@ -177,42 +232,78 @@ def auth_request(method: str, path: str, **kwargs):
 
 
 if not st.session_state["access_token"]:
-    st.sidebar.subheader("เข้าสู่ระบบ")
-    auth_mode = st.sidebar.radio("โหมด", ["เข้าสู่ระบบ", "สมัครสมาชิก"], key="auth_mode")
-    with st.sidebar.form("auth_form"):
-        auth_username = st.text_input("ชื่อผู้ใช้")
-        auth_password = st.text_input("รหัสผ่าน", type="password")
-        auth_submitted = st.form_submit_button(auth_mode)
+    # หัวข้อกึ่งกลาง (30 Aug 2026) -- เฉพาะหน้า login เท่านั้น เพื่อให้เข้าคู่
+    # กับกล่อง login ที่จัดกึ่งกลางไว้แล้วด้านล่าง (ตอน sidebar ยังไม่มีอะไร
+    # ก่อน login มันจะยุบหายไปเอง หน้าจอเลยเต็มความกว้าง ถ้าหัวข้อชิดซ้ายแบบ
+    # เดิมจะดูไม่เข้าคู่กับกล่องที่อยู่กึ่งกลาง) -- หลัง login แล้วใช้
+    # st.title() ปกติแบบเดิม (ชิดซ้าย เข้ากับ sidebar ที่กลับมาอยู่ข้างๆ)
+    st.markdown(
+        "<h1 style='text-align: center;'>AI Document Assistant</h1>",
+        unsafe_allow_html=True,
+    )
+    # ย้ายกล่อง login มาอยู่กลางหน้าหลักแทน sidebar (30 Aug 2026 ตามคำขอ) --
+    # ใช้ columns([1, 3, 1]) เพื่อให้กล่องอยู่กึ่งกลางแนวนอน คอลัมน์กลางกว้าง
+    # กว่าเดิม (จาก [1,2,1]) เพราะ container หลักขยายเป็น 1100px แล้ว ถ้าใช้
+    # สัดส่วนเดิมกล่องจะยังดูเล็ก/โล่งอยู่ดีเมื่อเทียบกับพื้นที่ที่กว้างขึ้น
+    _, login_col, _ = st.columns([1, 3, 1])
+    with login_col:
+        st.subheader("เข้าสู่ระบบ")
+        # เอา label "โหมด" ออกตามคำขอ -- label_visibility="collapsed" ยังคง
+        # เก็บ label ไว้ในโค้ด (จำเป็นสำหรับ accessibility/internal use ของ
+        # Streamlit) แค่ไม่แสดงผลบนหน้าจอเท่านั้น
+        auth_mode = st.radio(
+            "โหมด", ["เข้าสู่ระบบ", "สมัครสมาชิก"], key="auth_mode",
+            label_visibility="collapsed",
+        )
+        with st.form("auth_form"):
+            auth_username = st.text_input("ชื่อผู้ใช้")
+            auth_password = st.text_input("รหัสผ่าน", type="password")
+            auth_submitted = st.form_submit_button(auth_mode)
 
-    if auth_submitted:
-        if not auth_username or not auth_password:
-            st.sidebar.error("กรุณากรอกชื่อผู้ใช้และรหัสผ่าน")
-        elif auth_mode == "สมัครสมาชิก":
-            _, error = auth_request(
-                "POST", "/auth/register",
-                json={"username": auth_username, "password": auth_password},
-            )
-            if error:
-                st.sidebar.error(f"สมัครสมาชิกไม่สำเร็จ: {error}")
+        if auth_submitted:
+            if not auth_username or not auth_password:
+                st.error("กรุณากรอกชื่อผู้ใช้และรหัสผ่าน")
+            elif auth_mode == "สมัครสมาชิก":
+                result, error = auth_request(
+                    "POST", "/auth/register",
+                    json={"username": auth_username, "password": auth_password},
+                )
+                if error:
+                    st.error(f"สมัครสมาชิกไม่สำเร็จ: {error}")
+                else:
+                    # backend คืน access_token มาให้พร้อมกับตอนสมัครอยู่แล้ว
+                    # (ดู main.py /auth/register) เลย login อัตโนมัติได้เลย
+                    # ไม่ต้องกลับไปกรอกฟอร์ม login ซ้ำอีกรอบ
+                    st.session_state["access_token"] = result["access_token"]
+                    st.session_state["username"] = auth_username
+                    st.rerun()
             else:
-                st.sidebar.success("สมัครสมาชิกสำเร็จ — กรุณาเข้าสู่ระบบ")
-        else:
-            result, error = auth_request(
-                "POST", "/auth/login",
-                json={"username": auth_username, "password": auth_password},
-            )
-            if error:
-                st.sidebar.error(f"เข้าสู่ระบบไม่สำเร็จ: {error}")
-            else:
-                st.session_state["access_token"] = result["access_token"]
-                st.session_state["username"] = auth_username
-                st.rerun()
+                result, error = auth_request(
+                    "POST", "/auth/login",
+                    json={"username": auth_username, "password": auth_password},
+                )
+                if error:
+                    st.error(f"เข้าสู่ระบบไม่สำเร็จ: {error}")
+                else:
+                    st.session_state["access_token"] = result["access_token"]
+                    st.session_state["username"] = auth_username
+                    st.rerun()
 
-    st.warning("กรุณาเข้าสู่ระบบในแถบด้านซ้ายก่อนใช้งาน")
     st.stop()
 
+# หลัง login แล้ว: หัวข้อชิดซ้ายแบบเดิม (sidebar มีเนื้อหาปกติ ไม่ยุบหายแล้ว)
+st.title("AI Document Assistant")
+
 with st.sidebar:
-    st.caption(f"เข้าสู่ระบบในชื่อ: **{st.session_state['username']}**")
+    st.markdown(
+        f"""
+        <div class="user-info-box">
+            <span class="user-info-label">เข้าสู่ระบบในชื่อ</span>
+            <span class="user-info-name">{st.session_state['username']}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     if st.button("ออกจากระบบ"):
         st.session_state["access_token"] = None
         st.session_state["username"] = None
@@ -304,6 +395,7 @@ if page == "Upload Slip":
         ]
         st.session_state["queue_total"] = len(uploaded_files)
         st.session_state["queue_done"] = 0
+        st.session_state["queue_cancelled"] = 0
         st.session_state.pop("current_upload", None)
         st.session_state.pop("batch_complete", None)
     # ดึงไฟล์ถัดไปจากคิวมาเข้า OCR อัตโนมัติ เมื่อไม่มีไฟล์ไหนค้างรอตรวจสอบอยู่
@@ -344,11 +436,17 @@ if page == "Upload Slip":
     # เงียบๆ แบบเดิม -- แจ้งเตือนชัดเจนแทนที่จะปล่อยให้ตัวเลขค้างแบบไม่มีความหมาย
     queue_total = st.session_state.get("queue_total", 0)
     queue_done = st.session_state.get("queue_done", 0)
+    # queue_cancelled (30 Aug 2026): ไฟล์ที่ user กด "ยกเลิก" ทิ้ง ไม่ได้บันทึก
+    # จริง -- ต้องนับรวมกับ queue_done เวลาเช็คว่า "คิวจบหรือยัง" (ไฟล์ถูก
+    # จัดการแล้วไม่ว่าจะบันทึกหรือยกเลิก) แต่ queue_done เองต้องคงความหมาย
+    # เดิม ("บันทึกสำเร็จกี่ไฟล์") ไว้เพื่อโชว์ในข้อความสรุปท้ายคิวได้ถูกต้อง
+    queue_cancelled = st.session_state.get("queue_cancelled", 0)
+    queue_handled = queue_done + queue_cancelled
     is_orphaned = (
         queue_total > 0
         and not st.session_state.get("upload_queue")
         and "current_upload" not in st.session_state
-        and queue_done < queue_total
+        and queue_handled < queue_total
         and not st.session_state.get("batch_complete")
     )
     if is_orphaned:
@@ -357,10 +455,10 @@ if page == "Upload Slip":
             f"แต่ไฟล์ที่เหลือหายไปจากคิว (อาจเกิดจากการรีเฟรชหน้าเว็บระหว่างรอ) "
             f"กรุณาเลือกไฟล์ที่ยังไม่ได้บันทึกใหม่อีกครั้ง"
         )
-        for key in ("upload_queue", "queue_total", "queue_done", "batch_complete"):
+        for key in ("upload_queue", "queue_total", "queue_done", "queue_cancelled", "batch_complete"):
             st.session_state.pop(key, None)
     if queue_total > 1 and not is_orphaned:
-        current_num = queue_done + 1 if "current_upload" in st.session_state else queue_done
+        current_num = queue_handled + 1 if "current_upload" in st.session_state else queue_handled
         st.info(f"📦 ไฟล์ {current_num}/{queue_total} ในคิว")
     if "current_upload" in st.session_state:
         upload = st.session_state["current_upload"]
@@ -371,6 +469,30 @@ if page == "Upload Slip":
         }
         label = doc_type_labels.get(upload["doc_type"], upload["doc_type"])
         st.success(f"อ่านไฟล์สำเร็จ — ตรวจพบว่าเป็น: **{label}**")
+        # ปุ่มยกเลิกไฟล์นี้ (30 Aug 2026): เพิ่มตามคำขอ -- เดิมไม่มีทางออกเลย
+        # ถ้าอัปโหลดไฟล์ผิด นอกจากกดบันทึกลง DB ผิดๆ ไปก่อนแล้วค่อยไปลบที่
+        # Dashboard ทีหลัง (เพราะ current_upload ค้างอยู่ใน session_state
+        # จะทำให้ queue_in_progress เป็น True ตลอด ล็อกทั้งปุ่มอัปโหลดไฟล์ใหม่
+        # และเมนูสลับหน้าไปหมด จนกว่าจะมีการ del current_upload ออก ซึ่งเดิม
+        # เกิดขึ้นแค่จุดเดียวคือหลังกดยืนยันบันทึกสำเร็จใน confirm_save_dialog)
+        # -- ปุ่มนี้ล้าง current_upload ทิ้งตรงๆ โดยไม่บันทึกอะไรลง DB เลย
+        #
+        # เพิ่ม queue_done ด้วยถ้าอยู่กลาง batch (queue_total > 0) เพื่อให้
+        # ตัวนับความคืบหน้าของ batch ยังนับไฟล์นี้ว่า "จบแล้ว" (ถูกข้ามไป)
+        # ไม่งั้น is_orphaned check ด้านบนจะเข้าใจผิดว่าคิวค้าง (queue_done
+        # น้อยกว่า queue_total ทั้งที่ไม่มีไฟล์ไหนเหลือในคิว/current_upload แล้ว)
+        if st.button("❌ ยกเลิกไฟล์นี้ (ไม่บันทึก) — เลือกไฟล์ใหม่แทนได้เลย"):
+            st.session_state.pop("current_upload", None)
+            # แยก queue_cancelled ออกจาก queue_done (30 Aug 2026, แก้บั๊ก) --
+            # เดิมเพิ่ม queue_done ตอนยกเลิก ทำให้ตัวเลข "บันทึกสำเร็จ" ปนกับ
+            # "ยกเลิกไป" จนข้อความสรุปท้ายคิวบอกผิดว่า "บันทึกครบ 1/1 ไฟล์"
+            # ทั้งที่จริงไฟล์นั้นถูกยกเลิก ไม่ได้ยิง /save-slip เลย -- queue_done
+            # ต้องหมายถึง "บันทึกสำเร็จจริง" เท่านั้น (เพิ่มที่เดียวคือใน
+            # confirm_save_dialog หลัง /save-slip สำเร็จ) ส่วนไฟล์ที่ยกเลิกนับ
+            # แยกไว้ใน queue_cancelled แทน
+            if st.session_state.get("queue_total", 0) > 0:
+                st.session_state["queue_cancelled"] = st.session_state.get("queue_cancelled", 0) + 1
+            st.rerun()
         INTERNAL_FIELDS = {"datetime_parsed", "extraction_source"}
         display_fields = {
             k: v for k, v in parsed.items()
@@ -426,14 +548,24 @@ if page == "Upload Slip":
         del st.session_state["save_result"]
     # ขึ้นสรุปครั้งเดียวตอนคิวหมด (บันทึกครบทุกไฟล์ในชุดที่เลือกไว้แล้ว) --
     # batch_complete กันไม่ให้ข้อความค้างแสดงซ้ำทุกครั้งที่หน้ารีเฟรชหลังจากนั้น
+    queue_cancelled_final = st.session_state.get("queue_cancelled", 0)
     if (
         queue_total > 0
-        and st.session_state.get("queue_done", 0) >= queue_total
+        and (st.session_state.get("queue_done", 0) + queue_cancelled_final) >= queue_total
         and not st.session_state.get("upload_queue")
         and "current_upload" not in st.session_state
         and not st.session_state.get("batch_complete")
     ):
-        st.success(f"🎉 บันทึกครบ {queue_total}/{queue_total} ไฟล์แล้ว")
+        queue_done_final = st.session_state.get("queue_done", 0)
+        if queue_cancelled_final:
+            # แยกบอกจำนวนที่บันทึกจริงกับที่ยกเลิกไป ไม่ปนเป็นตัวเลขเดียว
+            # (30 Aug 2026, แก้บั๊กที่เคยบอก "บันทึกครบ" ทั้งที่บางไฟล์ถูกยกเลิก)
+            st.success(
+                f"เสร็จสิ้นคิว: บันทึกสำเร็จ {queue_done_final}/{queue_total} ไฟล์ "
+                f"(ยกเลิกไป {queue_cancelled_final} ไฟล์ ไม่ได้บันทึก)"
+            )
+        else:
+            st.success(f"🎉 บันทึกครบ {queue_total}/{queue_total} ไฟล์แล้ว")
         st.session_state["batch_complete"] = True
 
 elif page == "Ask":
@@ -576,4 +708,3 @@ elif page == "Dashboard":
                     render_slip_row(r)
             else:
                 st.info("ยังไม่มีรายการ")
-                

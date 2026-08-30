@@ -367,21 +367,34 @@ def delete_slip(slip_id: int, user_id: str, db_path: str = DB_PATH):
     ดิสก์ด้วย กันไฟล์ค้างตอนลบ record ทิ้ง image_path อาจเป็น None ได้
     (กรณี record นี้ยังไม่เคยแนบรูป) ผู้เรียกต้องเช็คก่อนลบไฟล์เสมอ
 
-    คืนค่า None ทั้งคู่ (คือ None ไม่ใช่ tuple) ถ้าไม่เจอแถวนั้น/ไม่ใช่ของ user นี้"""
+    เปลี่ยนอีกครั้ง (26 Aug 2026 — เพิ่ม audit log): คืนค่าเป็น
+    (filename, image_path, snapshot) 3 ค่าแทน 2 ค่าเดิม -- snapshot คือ
+    dict ของทั้งแถวก่อนถูกลบ (ดึงด้วย SELECT * แทน SELECT filename,
+    image_path เหมือนเดิม) ให้ผู้เรียก (main.py) ส่งต่อให้ log_delete()
+    เก็บไว้เผื่อกู้คืนทีหลัง เพราะพอ DELETE ไปแล้วข้อมูลจะหายจริง ไม่มีที่
+    อื่นให้ดึง snapshot มาเก็บได้อีก ต้องดึงมาก่อนสั่ง DELETE เท่านั้น
+
+    ⚠️ Breaking change: ที่อื่นในโปรเจกต์ที่เคย unpack ผลลัพธ์ของฟังก์ชันนี้
+    เป็น 2 ตัวแปร (เช่น `filename, image_path = delete_slip(...)`) ต้องแก้
+    เป็น 3 ตัวแปรทั้งหมด ไม่งั้นจะ error ทันที (ValueError: too many values
+    to unpack) — เช็ค main.py และไฟล์ test ที่เรียกฟังก์ชันนี้ให้ครบก่อนรัน
+
+    คืนค่า None ทั้งหมด (คือ None ไม่ใช่ tuple) ถ้าไม่เจอแถวนั้น/ไม่ใช่ของ user นี้"""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     row = conn.execute(
-        "SELECT filename, image_path FROM slips WHERE id = ? AND user_id = ?",
+        "SELECT * FROM slips WHERE id = ? AND user_id = ?",
         (slip_id, user_id),
     ).fetchone()
     if row is None:
         conn.close()
         return None
+    snapshot = dict(row)  # เก็บทั้งแถวไว้ก่อนลบ -- ส่งต่อให้ log_delete() ใน main.py
     filename, image_path = row["filename"], row["image_path"]
     conn.execute("DELETE FROM slips WHERE id = ? AND user_id = ?", (slip_id, user_id))
     conn.commit()
     conn.close()
-    return filename, image_path
+    return filename, image_path, snapshot
 
 
 def get_slip_owner_and_path(slip_id: int, db_path: str = DB_PATH):
