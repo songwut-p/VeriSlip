@@ -3,7 +3,9 @@ load_dotenv()
 
 import shutil
 import tempfile
+from datetime import date
 from pathlib import Path
+from typing import Optional
 from backend.schemas import RegisterRequest, LoginRequest, TokenResponse
 from backend.auth_utils import create_access_token, get_current_user
 from db.users import create_user, authenticate_user
@@ -44,14 +46,32 @@ def health():
 
 
 @app.get("/dashboard/summary")
-def dashboard_summary(current_user: dict = Depends(get_current_user)):
+def dashboard_summary(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    current_user: dict = Depends(get_current_user),
+):
     # user_id ใช้ username จาก token เสมอ (ไม่ใช่ id ตัวเลข) เพื่อให้ตรงกับ
     # ข้อมูลเก่าที่เคยบันทึกด้วย user_id แบบ free-text (เช่น "Ronova")
     user_id = current_user["username"]
+
+    # start_date/end_date (31 Aug 2026, Dashboard Item 2 redesign): query params
+    # ทางเลือก รับเป็น ISO date string จาก frontend (Streamlit ส่ง .isoformat())
+    # FastAPI/Pydantic แปลงเป็น datetime.date ให้อัตโนมัติ -- แปลงกลับเป็น
+    # ISO string ก่อนส่งเข้า dashboard_queries เพราะ SQL query ฝั่งนั้นเทียบ
+    # เป็น string เท่านั้น ไม่รับ date object ตรงๆ
+    sd = start_date.isoformat() if start_date else None
+    ed = end_date.isoformat() if end_date else None
+
+    # doc_type="bank_slip" (31 Aug 2026): scope การ์ดสรุปให้นับเฉพาะ bank_slip
+    # เท่านั้น -- ตกลงกันไว้ว่า Dashboard ที่ออกแบบใหม่จะไม่แสดง
+    # stock_confirmation แยกส่วนอีกต่อไป (backend ฝั่ง classify/parse/query
+    # ของ stock_confirmation เองไม่แตะเลย ยังใช้งานได้ปกติ แค่ตัด
+    # ออกจากสิ่งที่ Dashboard นี้แสดงผล)
     return {
-        "summary": get_summary_stats(user_id),
-        "totals_by_app_bank_slip": get_totals_by_app(user_id, "bank_slip"),
-        "trend_by_month_bank_slip": get_trend_by_month(user_id, "bank_slip"),
+        "summary": get_summary_stats(user_id, doc_type="bank_slip", start_date=sd, end_date=ed),
+        "totals_by_app_bank_slip": get_totals_by_app(user_id, "bank_slip", start_date=sd, end_date=ed),
+        "trend_by_month_bank_slip": get_trend_by_month(user_id, "bank_slip", start_date=sd, end_date=ed),
         "stock_summary": get_stock_summary(user_id),
         "recent_slips": get_recent_slips(user_id, limit=5),
     }
@@ -66,8 +86,10 @@ def dashboard_search(query: str, current_user: dict = Depends(get_current_user))
 @app.post("/auth/register", response_model=TokenResponse)
 def register(req: RegisterRequest):
     """สมัครสมาชิกใหม่ (username+password เท่านั้น ตามที่ตกลงกันไว้)
-    ล็อกอินให้อัตโนมัติหลังสมัครสำเร็จ (คืน token ทันที ไม่ต้องกลับไป
-    login ซ้ำอีกรอบ)"""
+
+    หมายเหตุ (31 Aug 2026): endpoint นี้ยังคืน access_token เหมือนเดิมทุก
+    ประการ (ไม่แตะ backend) แต่ frontend เลิกใช้ token นี้ไปแล้วตั้งแต่ Item 1
+    -- หลังสมัครสำเร็จ frontend จะพาไปหน้า login แทนการ auto-login ตรงนี้"""
     if len(req.password) < 8:
         raise HTTPException(status_code=400, detail="รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร")
 
@@ -246,3 +268,4 @@ async def ask(
         semantic_search_fn=semantic_search,
     )
     return result
+    

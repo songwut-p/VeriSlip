@@ -26,6 +26,18 @@ Design principles (agreed with Songwut, 19 Aug 2026):
   caller explicitly asks for combined totals (mirrors the same bug we just fixed
   in rag/query_router.py's /ask intents).
 
+Date-range filtering (31 Aug 2026, added for Dashboard Item 2 redesign):
+- start_date/end_date are optional ISO date strings ('YYYY-MM-DD'), inclusive
+  on both ends. When either is given, rows missing datetime_year/month/day are
+  excluded from that query's result -- there is no way to know if an
+  undated row falls inside the requested range, so it's dropped rather than
+  guessed into or out of the range.
+- Dates are compared as zero-padded strings ('YYYY-MM-DD') built from the
+  integer year/month/day columns via SQL printf(), not via SQLite's row-value
+  syntax -- printf-based string comparison works identically across SQLite
+  versions, whereas row-value comparison ((a,b,c) >= (x,y,z)) needs SQLite
+  3.15+ and isn't worth relying on here.
+
 NOTE (23 Aug 2026): this module is READ-ONLY by design (_connect() opens SQLite
 in mode=ro). Do NOT add write operations (INSERT/UPDATE/DELETE) here -- writes
 belong in db/import_slips.py, which already owns the read-write connection used
@@ -83,23 +95,70 @@ def _has_issue_case_sql() -> str:
     """
 
 
-def get_summary_stats(user_id: str) -> dict[str, Any]:
-    """Overall counts: total docs, complete vs has-issue (doc_type-aware), by doc_type."""
+def _date_filter_clause(start_date: str | None, end_date: str | None) -> tuple[str, list[Any]]:
+    """
+    Build a SQL fragment (leading " AND ...", or "" if no filter requested) plus
+    its bound params, for filtering rows by datetime_year/month/day against an
+    inclusive [start_date, end_date] range of ISO date strings.
+
+    Added 31 Aug 2026 for the Dashboard Item 2 redesign's date-range filter.
+    When start_date/end_date are both None (the default -- no filter applied),
+    returns ("", []) so every existing call site that doesn't pass these
+    arguments keeps its exact previous behavior unchanged.
+    """
+    if not start_date and not end_date:
+        return "", []
+    date_expr = "printf('%04d-%02d-%02d', datetime_year, datetime_month, datetime_day)"
+    clauses = ["datetime_year IS NOT NULL", "datetime_month IS NOT NULL", "datetime_day IS NOT NULL"]
+    params: list[Any] = []
+    if start_date:
+        clauses.append(f"{date_expr} >= ?")
+        params.append(start_date)
+    if end_date:
+        clauses.append(f"{date_expr} <= ?")
+        params.append(end_date)
+    return " AND " + " AND ".join(clauses), params
+
+
+def get_summary_stats(
+    user_id: str,
+    doc_type: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
+    """
+    Overall counts: total docs, complete vs has-issue (doc_type-aware), by doc_type.
+
+    doc_type is optional (default None = all doc types combined, unchanged from
+    the original behavior) -- Dashboard Item 2 (31 Aug 2026) passes doc_type=
+    "bank_slip" explicitly to scope the summary cards to bank_slip only, since
+    stock_confirmation was dropped from the Dashboard display entirely (backend
+    support for stock_confirmation itself is untouched).
+    """
+    doc_clause = ""
+    doc_params: list[Any] = []
+    if doc_type:
+        doc_clause = " AND doc_type = ?"
+        doc_params = [doc_type]
+    date_clause, date_params = _date_filter_clause(start_date, end_date)
+
     with _connect() as conn:
         total = conn.execute(
-            "SELECT COUNT(*) AS n FROM slips WHERE user_id = ?", (user_id,)
+            f"SELECT COUNT(*) AS n FROM slips WHERE user_id = ?{doc_clause}{date_clause}",
+            (user_id, *doc_params, *date_params),
         ).fetchone()["n"]
 
         by_doc_type = conn.execute(
-            "SELECT doc_type, COUNT(*) AS n FROM slips WHERE user_id = ? GROUP BY doc_type",
-            (user_id,),
+            f"SELECT doc_type, COUNT(*) AS n FROM slips WHERE user_id = ?{doc_clause}{date_clause} "
+            f"GROUP BY doc_type",
+            (user_id, *doc_params, *date_params),
         ).fetchall()
 
         has_issue_case = _has_issue_case_sql()
         issue_counts = conn.execute(
             f"SELECT doc_type, SUM({has_issue_case}) AS n_issue, COUNT(*) AS n_total "
-            f"FROM slips WHERE user_id = ? GROUP BY doc_type",
-            (user_id,),
+            f"FROM slips WHERE user_id = ?{doc_clause}{date_clause} GROUP BY doc_type",
+            (user_id, *doc_params, *date_params),
         ).fetchall()
 
         total_issue = sum(r["n_issue"] or 0 for r in issue_counts)
@@ -116,7 +175,12 @@ def get_summary_stats(user_id: str) -> dict[str, Any]:
         }
 
 
-def get_totals_by_app(user_id: str, doc_type: str = "bank_slip") -> list[dict[str, Any]]:
+def get_totals_by_app(
+    user_id: str,
+    doc_type: str = "bank_slip",
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> list[dict[str, Any]]:
     """
     Sum of amounts grouped by source_app, complete-amount rows only.
     Uses source_app (K+/Make/Dime/TrueMoney/unknown) instead of bank_name --
@@ -126,40 +190,47 @@ def get_totals_by_app(user_id: str, doc_type: str = "bank_slip") -> list[dict[st
     fragmented buckets. source_app comes from guess_source_app()'s controlled
     vocabulary and is reliable for this purpose.
     """
+    date_clause, date_params = _date_filter_clause(start_date, end_date)
     with _connect() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT source_app, COUNT(*) AS count, SUM(amount) AS total_amount
             FROM slips
-            WHERE doc_type = ? AND amount_issue IS NULL AND user_id = ?
+            WHERE doc_type = ? AND amount_issue IS NULL AND user_id = ?{date_clause}
             GROUP BY source_app
             ORDER BY total_amount DESC
             """,
-            (doc_type, user_id),
+            (doc_type, user_id, *date_params),
         ).fetchall()
         return [dict(r) for r in rows]
 
 
-def get_trend_by_month(user_id: str, doc_type: str = "bank_slip") -> list[dict[str, Any]]:
+def get_trend_by_month(
+    user_id: str,
+    doc_type: str = "bank_slip",
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> list[dict[str, Any]]:
     """
     Doc count + total amount per (year, month), for a time-series chart.
     doc_type is required (not optional/'all') to avoid silently mixing THB
     bank transfers with THB stock purchase amounts in one trend line --
     pass doc_type='stock_confirmation' explicitly for a separate stock chart.
     """
+    date_clause, date_params = _date_filter_clause(start_date, end_date)
     with _connect() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT datetime_year AS year, datetime_month AS month,
                    COUNT(*) AS count,
                    SUM(amount) AS total_amount
             FROM slips
             WHERE doc_type = ? AND datetime_issue IS NULL AND user_id = ?
-              AND datetime_year IS NOT NULL AND datetime_month IS NOT NULL
+              AND datetime_year IS NOT NULL AND datetime_month IS NOT NULL{date_clause}
             GROUP BY datetime_year, datetime_month
             ORDER BY datetime_year, datetime_month
             """,
-            (doc_type, user_id),
+            (doc_type, user_id, *date_params),
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -316,3 +387,4 @@ def get_stock_summary(user_id: str) -> list[dict[str, Any]]:
         entry["total_amount"] += r["amount"] or 0.0
 
     return sorted(by_symbol.values(), key=lambda e: e["total_amount"], reverse=True)
+    

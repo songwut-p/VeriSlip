@@ -2,8 +2,17 @@ import streamlit as st
 import requests
 import pandas as pd
 import altair as alt
+import extra_streamlit_components as stx
+import time
+import json
+from datetime import datetime, timedelta
 
 API_BASE = "http://localhost:8000"
+
+THAI_MONTH_ABBR = {
+    1: "ม.ค.", 2: "ก.พ.", 3: "มี.ค.", 4: "เม.ย.", 5: "พ.ค.", 6: "มิ.ย.",
+    7: "ก.ค.", 8: "ส.ค.", 9: "ก.ย.", 10: "ต.ค.", 11: "พ.ย.", 12: "ธ.ค.",
+}
 
 FIELD_LABELS = {
     "bank_name": "ธนาคาร/แอป",
@@ -90,6 +99,32 @@ Streamlit จำกัดไว้แค่ ~730px เสมอไม่ว่�
     font-size: 1.05rem !important;
     padding: 8px 22px !important;
 }
+
+/* การ์ดสรุปสีสันบน Dashboard (31 Aug 2026, Item 2 redesign) -- แทนที่
+st.metric แบบเรียบเดิม 3 ใบ (เอกสารทั้งหมด/ครบถ้วน/มีปัญหา) ด้วยการ์ดพื้น
+หลังสีเข้ม+ตัวหนังสือขาว ตามแนว reference UI ที่เพื่อนแชร์มา (ibiz-style) --
+ใช้สีต่างกันตามความหมาย ไม่ได้ไล่สีตามลำดับ: น้ำเงิน=ภาพรวม,
+เขียว=สถานะดี(ครบถ้วน), ส้มแดง=ต้องระวัง(มีปัญหา) */
+.metric-card {
+    border-radius: 12px;
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 80px;
+}
+.metric-card .metric-label {
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.85);
+}
+.metric-card .metric-value {
+    font-size: 1.9rem;
+    font-weight: 700;
+    color: #ffffff;
+}
+.metric-card-total { background-color: #1d6fd8; }
+.metric-card-complete { background-color: #0f9d58; }
+.metric-card-issue { background-color: #d9534f; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -164,13 +199,40 @@ def confirm_delete_dialog(slip_id: int, filename: str):
         st.rerun()
 
 
+def _display_currency(currency: str | None) -> str:
+    """
+    แปลงค่า currency ให้แสดงผลเป็นคำเดียวกันเสมอในหน้า UI (31 Aug 2026) --
+    พบจากการทดสอบจริงว่าไฟล์ต่างกันได้ค่า currency ไม่ตรงกัน ("บาท" บาง
+    ไฟล์, "THB" บางไฟล์) ตามรูปแบบต้นฉบับที่ parser แต่ละแบบดึงมา -- ฟังก์ชัน
+    นี้แก้แค่ตอน "แสดงผล" เท่านั้น ไม่แตะค่าที่เก็บอยู่ใน DB เลย จึงไม่เสี่ยง
+    กระทบ query อื่นที่อาจอ้างอิงค่า currency ดิบอยู่
+
+    ตั้งใจ whitelist เฉพาะค่าที่รู้ว่าหมายถึงบาทจริง (ว่าง/None/THB/Baht/บาท)
+    ให้กลายเป็น "บาท" เท่านั้น -- ค่าอื่นที่ไม่รู้จัก (เผื่ออนาคตมีสกุลเงิน
+    อื่นจริงๆ เช่น USD) จะปล่อยผ่านตามเดิม ไม่บังคับกลายเป็น "บาท" ไปด้วย
+
+    หมายเหตุ (31 Aug 2026, ทำให้ชัดเจนขึ้น): เดิมเช็คแค่ {"", "THB", "BAHT"}
+    (ตัวพิมพ์ใหญ่ล้วน) -- ค่า "บาท" (ภาษาไทย) ไม่ตรงกับเงื่อนไขนี้เลยสักตัว
+    แต่ผลลัพธ์ยัง "ถูกบังเอิญ" เพราะตกไปที่ else แล้วคืนค่า "บาท" กลับไปตรงๆ
+    อยู่ดี (ซึ่งก็คือคำที่ต้องการอยู่แล้ว) -- เพิ่ม "บาท" เข้าไปใน whitelist
+    ตรงๆ เพื่อให้เจตนาของโค้ดชัดเจน ไม่ต้องพึ่งพฤติกรรม fallthrough ที่บังเอิญ
+    ถูกต้อง
+    """
+    if currency is None or currency.strip().upper() in {"", "THB", "BAHT"} or currency.strip() == "บาท":
+        return "บาท"
+    return currency
+
+
 def render_slip_row(r: dict):
     icon = "⚠️" if r["has_issue"] else "✅"
     if r["doc_type"] == "stock_confirmation":
         label = f"{r['source_app']} stock order"
     else:
         label = r["recipient_name"] or r["sender_name"] or "ไม่ทราบชื่อ"
-    amount_text = f"{r['amount']:.2f} {r['currency']}" if r["amount"] is not None else "ไม่ทราบยอด"
+    amount_text = (
+        f"{r['amount']:.2f} {_display_currency(r['currency'])}"
+        if r["amount"] is not None else "ไม่ทราบยอด"
+    )
 
     col1, col2, col3 = st.columns([9, 1, 1])
     col1.write(f"{icon} **{r['filename']}** ({r['doc_type']}, {r['source_app']}) — {label} — {amount_text}")
@@ -201,15 +263,116 @@ def render_slip_row(r: dict):
 
 
 # ===== ระบบ auth จริง (JWT) -- แทนที่ PoC user_id (free-text, ไม่มีรหัสผ่าน) เดิม (25 Aug 2026) =====
+
+# Cookie manager (2 ก.ย. 2026) -- แก้ปัญหา "รีเฟรชหน้าแล้วต้อง login ใหม่ทุกครั้ง"
+# st.session_state อยู่ได้แค่ในรอบ script run เดียว/session เดียวของ browser
+# tab -- พอรีเฟรช (F5) หรือ Streamlit auto-reload หลังแก้โค้ด จะเปิด session
+# ใหม่ ทำให้ session_state ถูกล้างเสมอ ไม่ว่า token จะยังไม่หมดอายุจริงก็ตาม
+# -- ใช้ browser cookie แทน (รอดทั้งสองกรณี เพราะ cookie อยู่ฝั่ง browser
+# ไม่ใช่ฝั่ง Streamlit server) เลือก cookie เหนือ URL query param เพราะ query
+# param จะโชว์ JWT token เป็นตัวอักษรโต้งๆ ในแถบ URL (เสี่ยงหลุดผ่านการแชร์
+# ลิงก์/browser history/proxy log) ส่วน cookie ไม่โผล่ให้เห็นในหน้าจอปกติเลย
+#
+# แก้ (2 ก.ย. 2026): เดิมห่อด้วย @st.cache_resource เพราะกลัวสร้าง component
+# ซ้ำทุก rerun -- แต่ CookieManager() ภายในสร้าง widget component จริงๆ
+# (เรียก getAll() ผ่าน custom component) ทำให้ Streamlit เวอร์ชันปัจจุบันขึ้น
+# CachedWidgetWarning แล้ว error จริง เพราะห้ามสร้าง widget ในฟังก์ชันที่ cache
+# ไว้ -- แก้โดยสร้างตรงๆ ทุก rerun แทน
+#
+# key ผูกกับ "_cookie_epoch" แทนค่าคงที่ตรงๆ (2 ก.ย. 2026, แก้บั๊กที่เจอจริง
+# ตอน logout) -- ถ้าใช้ key คงที่ตัวเดียวตลอดอายุ session, component ตัวนี้จะ
+# ค้างค่าที่เคย mount รายงานไว้ครั้งแรก ไม่ re-fetch cookie จริงจาก browser
+# ให้เอง แม้จะสั่งลบ/เขียน cookie ผ่าน component คนละตัว (key ต่างกัน) ไปแล้ว
+# ก็ตาม -- เพิ่ม epoch (ตัวนับ, บวกเพิ่มทุกครั้งที่ login/logout สำเร็จ ใน
+# clear_auth()/หลัง set cookie ตอน login) ทำให้ key เปลี่ยนไปทุกครั้งที่มีการ
+# แก้ cookie จริง บังคับให้ Streamlit มองว่าเป็น component ตัวใหม่ ต้อง
+# re-mount + re-fetch คุกกี้จริงเสมอ ไม่ต้องพึ่งการ reload หน้าเว็บทั้งหน้า
+# (window.location.reload()) ที่เคยใช้แก้ปัญหาเดียวกันแต่ทำให้เห็นจอขาววาบ
+if "_cookie_epoch" not in st.session_state:
+    st.session_state["_cookie_epoch"] = 0
+cookie_manager = stx.CookieManager(key=f"cookie_manager_{st.session_state['_cookie_epoch']}")
+
 if "access_token" not in st.session_state:
     st.session_state["access_token"] = None
 if "username" not in st.session_state:
     st.session_state["username"] = None
 
+# จอ loading กลางจอรอบเดียวตอนเปิดแอป/รีเฟรชครั้งแรก (2 ก.ย. 2026, ทำให้ลื่น
+# ขึ้น) -- ก่อนหน้านี้ไม่มีจอนี้ ทำให้เห็นหน้า "เข้าสู่ระบบ" กระพริบแว้บเดียว
+# ก่อนจะสลับเป็นหน้าแอปจริง (กรณี login ค้างอยู่จาก cookie) เพราะ
+# cookie_manager ต้องมี round-trip ไป JS ก่อนถึงจะรู้ค่า cookie จริง (รอบแรก
+# สุดคืน default={} เสมอ ไม่ว่าจะมี cookie จริงหรือไม่) -- แก้โดยหน่วงเวลาไว้
+# หนึ่งรอบ ณ จุดนี้เท่านั้น (ก่อนตัดสินใจโชว์หน้า login หรือแอป) แสดง spinner
+# กลางจอที่ดูตั้งใจแทนที่จะโชว์ผลลัพธ์ที่ยังไม่ชัวร์ (หน้า login) ออกไปก่อน
+# แล้วมาสลับทีหลังแบบกระตุก -- ทำครั้งเดียวต่อ session (ไม่หน่วงซ้ำทุก rerun)
+if "_boot_done" not in st.session_state:
+    st.session_state["_boot_done"] = False
+if not st.session_state["_boot_done"]:
+    _, spinner_col, _ = st.columns([1, 2, 1])
+    with spinner_col:
+        with st.spinner("กำลังโหลด..."):
+            time.sleep(0.35)
+    st.session_state["_boot_done"] = True
+    st.rerun()
+
+# กู้ session จาก cookie ถ้า session_state ยังว่างอยู่ (ผ่านจอ loading ด้านบน
+# มาแล้ว รอบนี้ cookie_manager ควรมีค่าจริงพร้อมให้อ่านแล้ว)
+#
+# เก็บ token+username รวมเป็น cookie เดียว ("auth_session", JSON string) แทน
+# ที่จะแยกเป็น 2 cookie (2 ก.ย. 2026, แก้บั๊กที่เจอจริง) -- ตอนแรกแยกเป็น
+# access_token/username คนละ cookie คนละ .set() call ทำให้มี 2 จุดที่อาจ
+# หลุดจาก race condition (JS เขียน cookie แบบ async, ไม่รอผลจริง) พบจริงว่า
+# บางรอบ access_token ติดแต่ username หลุด -- รวมเป็น cookie เดียวเหลือแค่
+# 1 จุดเสี่ยง ถ้าเขียนไม่ทันจริงๆ อย่างน้อยก็หลุดพร้อมกันทั้งคู่ (ไม่ใช่ครึ่งๆ
+# กลางๆ ที่ตรวจจับยากกว่า)
+if not st.session_state["access_token"]:
+    auth_cookie_raw = cookie_manager.get("auth_session")
+    if auth_cookie_raw:
+        try:
+            # ยืนยันจริงจาก debug (2 ก.ย. 2026): underlying JS cookie library
+            # ของ component นี้ decode ค่า JSON ให้เป็น dict ก่อนส่งกลับมาให้
+            # Python อยู่แล้ว ไม่ใช่ string ดิบ -- เผื่อกรณี string ไว้ด้วย
+            # (fallback) เผื่อพฤติกรรมเปลี่ยนไปในเวอร์ชันอื่นของ library
+            auth_cookie_data = (
+                auth_cookie_raw if isinstance(auth_cookie_raw, dict)
+                else json.loads(auth_cookie_raw)
+            )
+            cookie_token = auth_cookie_data.get("access_token")
+            cookie_username = auth_cookie_data.get("username")
+            if cookie_token and cookie_username:
+                st.session_state["access_token"] = cookie_token
+                st.session_state["username"] = cookie_username
+        except (TypeError, ValueError):
+            pass  # cookie เพี้ยน/parse ไม่ได้ -- ปล่อยผ่าน ให้ผู้ใช้ login ใหม่
+
 
 def auth_headers():
     token = st.session_state.get("access_token")
     return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def clear_auth(cookie_key_prefix: str):
+    """ล้างทั้ง session_state และ cookie พร้อมกัน -- ใช้ตอนกดออกจากระบบ หรือ
+    ตอน token หมดอายุ (401) เพิ่ม 2 ก.ย. 2026 คู่กับการทำ cookie persistence
+    ด้านบน (ถ้าลบแค่ session_state เฉยๆ โดยไม่ลบ cookie ด้วย รีเฟรชหน้าจะกู้
+    token เก่ากลับมาอัตโนมัติจาก cookie ทันที ทำให้ "ออกจากระบบ" ไม่ได้จริง)
+    cookie_key_prefix ต้องต่างกันในแต่ละจุดที่เรียก เพราะ CookieManager ผูก
+    การลบแต่ละครั้งกับ widget key ของมันเอง ใช้ key ซ้ำกันข้ามจุดเรียกจะชน
+
+    เพิ่ม "_cookie_epoch" bump (2 ก.ย. 2026) แทนการบังคับ reload หน้าเว็บทั้ง
+    หน้าแบบเดิม (window.location.reload() ทำให้เห็นจอขาววาบ ไม่ smooth) --
+    บวก epoch ตรงนี้ ทำให้รอบ rerun ถัดไปสร้าง cookie_manager ตัวใหม่ด้วย key
+    ที่ไม่เคยใช้มาก่อน บังคับให้ Streamlit ต้องขอข้อมูล cookie จริงจาก browser
+    ใหม่ทั้งหมด (ไม่ค้างค่าเก่าจากตอน login) โดยไม่ต้อง reload หน้าเว็บเลย"""
+    st.session_state["access_token"] = None
+    st.session_state["username"] = None
+    with st.spinner("กำลังออกจากระบบ..."):
+        cookie_manager.delete("auth_session", key=f"{cookie_key_prefix}_auth")
+        # หน่วงสั้นๆ ก่อนรีรัน (2 ก.ย. 2026) -- เหตุผลเดียวกับตอน login:
+        # .delete() สั่ง browser ลบ cookie แบบ async ถ้ารีรันตามมาเร็วเกินไป
+        # cookie เก่าจะยังไม่ทันถูกลบจริง
+        time.sleep(0.3)
+    st.session_state["_cookie_epoch"] += 1
 
 
 def auth_request(method: str, path: str, **kwargs):
@@ -247,6 +410,24 @@ if not st.session_state["access_token"]:
     # สัดส่วนเดิมกล่องจะยังดูเล็ก/โล่งอยู่ดีเมื่อเทียบกับพื้นที่ที่กว้างขึ้น
     _, login_col, _ = st.columns([1, 3, 1])
     with login_col:
+        # แก้บั๊ก (31 Aug 2026): Streamlit ห้าม set st.session_state[key] ของ
+        # widget ที่ผูก key นั้นอยู่ หลังจาก widget ถูก instantiate ไปแล้วใน
+        # รันเดียวกัน -- แม้จะตามด้วย st.rerun() ก็ตาม (เช็คตอนสั่ง assign
+        # ไม่ใช่ตอน render) ทำให้ set "auth_mode" ตรงๆ ตอนสมัครเสร็จ (ซึ่งอยู่
+        # หลังจุดที่ st.radio(key="auth_mode") เคย render ไปแล้วในรันก่อนหน้า
+        # แต่ยังอยู่ในรันเดียวกันตอนกดปุ่ม submit) แล้วโดน error ทันที --
+        # แก้โดยพักค่าไว้ในคีย์ชั่วคราว "pending_auth_mode" ก่อน แล้วมา apply
+        # ตรงนี้ในรันถัดไป ซึ่งเป็นจุดก่อนที่ widget "auth_mode" จะถูกสร้าง
+        # ในรันนั้นเลย (ยังไม่เคย instantiate มาก่อนในรันนี้) จึง set ได้
+        pending_mode = st.session_state.pop("pending_auth_mode", None)
+        if pending_mode is not None:
+            st.session_state["auth_mode"] = pending_mode
+
+        # ข้อความแจ้งสมัครสมาชิกสำเร็จ (31 Aug 2026) -- โชว์แค่ครั้งเดียวหลัง
+        # rerun กลับมาที่นี่จากตอนสมัครเสร็จ ใช้ .pop() แบบเดียวกับ
+        # delete_success ใน Dashboard เพื่อไม่ให้ข้อความค้างซ้ำทุกรอบ rerun
+        if st.session_state.pop("register_success_username", None) is not None:
+            st.success("สมัครสมาชิกสำเร็จ — กรุณาเข้าสู่ระบบด้วยชื่อผู้ใช้และรหัสผ่านที่ตั้งไว้")
         st.subheader("เข้าสู่ระบบ")
         # เอา label "โหมด" ออกตามคำขอ -- label_visibility="collapsed" ยังคง
         # เก็บ label ไว้ในโค้ด (จำเป็นสำหรับ accessibility/internal use ของ
@@ -271,11 +452,13 @@ if not st.session_state["access_token"]:
                 if error:
                     st.error(f"สมัครสมาชิกไม่สำเร็จ: {error}")
                 else:
-                    # backend คืน access_token มาให้พร้อมกับตอนสมัครอยู่แล้ว
-                    # (ดู main.py /auth/register) เลย login อัตโนมัติได้เลย
-                    # ไม่ต้องกลับไปกรอกฟอร์ม login ซ้ำอีกรอบ
-                    st.session_state["access_token"] = result["access_token"]
-                    st.session_state["username"] = auth_username
+                    # เปลี่ยนพฤติกรรม (31 Aug 2026): เดิม auto-login ด้วย
+                    # access_token ที่ backend คืนมาตอนสมัคร -- ตอนนี้ไม่ใช้
+                    # token นั้นแล้ว (endpoint เดิมยังคืนมาเหมือนเดิม แค่ไม่
+                    # เอามาใช้) บังคับ flow มาตรฐาน: สมัครเสร็จ -> กลับไปหน้า
+                    # login -> กรอกรหัสผ่านเข้าเองอีกรอบ ไม่ auto-entering
+                    st.session_state["pending_auth_mode"] = "เข้าสู่ระบบ"
+                    st.session_state["register_success_username"] = auth_username
                     st.rerun()
             else:
                 result, error = auth_request(
@@ -287,6 +470,43 @@ if not st.session_state["access_token"]:
                 else:
                     st.session_state["access_token"] = result["access_token"]
                     st.session_state["username"] = auth_username
+                    with st.spinner("กำลังเข้าสู่ระบบ..."):
+                        # เขียนลง cookie เดียว ("auth_session", JSON string)
+                        # แทนแยก 2 cookie (2 ก.ย. 2026, แก้บั๊กที่เจอจริง) --
+                        # ดูคำอธิบายเต็มที่จุดอ่าน cookie ด้านบน (สรุปสั้นๆ:
+                        # 2 cookie แยก = 2 จุดเสี่ยง race condition, รวมเป็น
+                        # 1 cookie = เหลือจุดเสี่ยงเดียว) อายุ cookie 7 วัน
+                        # (ไม่ผูกกับอายุจริงของ JWT ฝั่ง backend -- ถ้า JWT
+                        # หมดอายุก่อน cookie, call_api()'s 401 handler
+                        # ด้านล่างจะลบ cookie ทิ้งเองอยู่แล้วตอนเรียก API
+                        # แล้วโดน 401)
+                        expires_at = datetime.now() + timedelta(days=7)
+                        auth_cookie_value = json.dumps({
+                            "access_token": result["access_token"],
+                            "username": auth_username,
+                        })
+                        cookie_manager.set(
+                            "auth_session", auth_cookie_value, expires_at=expires_at,
+                            key="set_auth_cookie",
+                        )
+                        # หน่วงสั้นๆ ก่อน rerun (2 ก.ย. 2026, แก้บั๊กที่เจอ
+                        # จริง) -- cookie_manager.set() สั่งให้ browser เขียน
+                        # cookie ผ่าน custom component แบบ async (Python ไม่
+                        # รอผลจริง คืนค่า default ทันที) ถ้า st.rerun() ยิง
+                        # ตามมาเร็วเกินไป Streamlit จะ rebuild หน้าใหม่ก่อนที่
+                        # browser จะทัน execute คำสั่งเขียน cookie จาก JS ฝั่ง
+                        # component เสร็จ -- ยืนยันจริงจาก DevTools ว่า cookie
+                        # หายไปเงียบๆ ถ้าไม่หน่วง (ไม่ error ให้เห็นเลย) 0.3
+                        # วิ พอสำหรับ JS document.cookie ซึ่งเป็น synchronous
+                        # call อยู่แล้ว ที่ต้องหน่วงคือรอบ postMessage จาก
+                        # component iframe กลับมาที่ตัวแอปหลักเท่านั้น
+                        time.sleep(0.3)
+                    # บวก epoch ด้วย (2 ก.ย. 2026) -- เผื่อกรณี login/logout
+                    # หลายรอบในเซสชันเดียวกัน (ไม่ต้องรอ F5) ให้ cookie_manager
+                    # ตัวหลักได้ key ใหม่เสมอหลัง login สำเร็จเช่นกัน สมมาตร
+                    # กับที่ทำใน clear_auth() ตอน logout -- กันไม่ให้ค่าเก่า
+                    # ค้าง ถ้ามีการ login-logout สลับกันซ้ำๆ ในเซสชันเดียว
+                    st.session_state["_cookie_epoch"] += 1
                     st.rerun()
 
     st.stop()
@@ -305,8 +525,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     if st.button("ออกจากระบบ"):
-        st.session_state["access_token"] = None
-        st.session_state["username"] = None
+        clear_auth("logout")
         st.rerun()
     st.divider()
 # ===== จบส่วน auth =====
@@ -337,8 +556,7 @@ def call_api(method: str, path: str, spinner_text: str, **kwargs):
         except ValueError:
             detail = resp.text
         if resp.status_code == 401:
-            st.session_state["access_token"] = None
-            st.session_state["username"] = None
+            clear_auth("expired")
             st.error("เซสชันหมดอายุหรือยังไม่ได้เข้าสู่ระบบ กรุณาเข้าสู่ระบบใหม่")
             st.rerun()
         else:
@@ -543,7 +761,7 @@ if page == "Upload Slip":
         row = save_result.get("db_row", {})
         st.success(f"บันทึกสำเร็จ — {row.get('filename', '')}")
         col1, col2 = st.columns(2)
-        col1.metric("ยอดเงิน", f"{row['amount']:,.2f} {row.get('currency') or ''}" if row.get("amount") is not None else "ไม่ทราบยอด")
+        col1.metric("ยอดเงิน", f"{row['amount']:,.2f} {_display_currency(row.get('currency'))}" if row.get("amount") is not None else "ไม่ทราบยอด")
         col2.metric("ประเภทเอกสาร", "สลิปโอนเงิน" if row.get("doc_type") == "bank_slip" else "ใบยืนยันซื้อหุ้น")
         del st.session_state["save_result"]
     # ขึ้นสรุปครั้งเดียวตอนคิวหมด (บันทึกครบทุกไฟล์ในชุดที่เลือกไว้แล้ว) --
@@ -604,79 +822,188 @@ elif page == "Ask":
 
 elif page == "Dashboard":
     st.header("แดชบอร์ดสรุปข้อมูล")
+
+    # แถบ filter ช่วงวันที่ (31 Aug 2026, Item 2 redesign) -- ตาม reference UI
+    # ที่เพื่อนแชร์มา (ibiz-style) ใช้ st.date_input โหมด range (value=() คือ
+    # ยังไม่เลือกอะไร ให้ user คลิกเลือกเอง 2 ครั้ง) แทนที่จะบังคับช่วงเริ่มต้น
+    # ไว้ล่วงหน้า เพราะไม่รู้ล่วงหน้าว่าข้อมูลจริงของแต่ละคนอยู่ช่วงไหน --
+    # ปล่อยว่างไว้ = ไม่กรอง (เห็นข้อมูลทั้งหมด) เป็นค่าเริ่มต้นที่ปลอดภัยกว่า
+    # ตัดสินใจแทนผู้ใช้ผิดๆ ว่าอยากดูแค่ 6 เดือนหรือ 1 ปีที่ผ่านมา
+    #
+    # สโคปเฉพาะ bank_slip เท่านั้น (ไม่มี dropdown กรองตามแอปในเวอร์ชันนี้ --
+    # เก็บไว้เป็น scope ที่อาจเพิ่มทีหลัง)
+    date_range = st.date_input(
+        "กรองตามช่วงวันที่ (เฉพาะสลิปโอนเงิน — เว้นว่างเพื่อดูข้อมูลทั้งหมด)",
+        value=(),
+        key="dashboard_date_range",
+    )
+    start_date = end_date = None
+    if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
+        start_date, end_date = date_range
+
+    params = {}
+    if start_date:
+        params["start_date"] = start_date.isoformat()
+    if end_date:
+        params["end_date"] = end_date.isoformat()
+
     data = call_api(
         "GET", "/dashboard/summary",
         spinner_text="กำลังโหลดข้อมูลแดชบอร์ด...",
+        params=params,
     )
     if data is not None:
         summary = data["summary"]
+        # การ์ดสรุปสีสัน (31 Aug 2026, Item 2 redesign) -- แทนที่ st.metric
+        # เรียบๆ เดิม 3 ใบด้วยการ์ดพื้นหลังสี (ดู .metric-card CSS ด้านบนไฟล์)
+        # ตัวเลขทั้ง 3 ใบนี้มาจาก get_summary_stats(doc_type="bank_slip",
+        # start_date=..., end_date=...) ฝั่ง backend แล้ว จึงขยับตามช่วงวันที่
+        # ที่เลือกไว้ด้านบนโดยอัตโนมัติ (ตกลงกันไว้ว่าอยากให้การ์ดตอบสนองตาม
+        # filter ไม่ใช่ค่ารวมทั้งหมดตลอด) -- ไม่มีการ์ด "แยกตามประเภทเอกสาร"
+        # อีกต่อไป เพราะ summary ตอนนี้สโคปแค่ bank_slip อย่างเดียวแล้ว
         col1, col2, col3 = st.columns(3)
-        col1.metric("เอกสารทั้งหมด", summary["total"])
-        col2.metric("ครบถ้วน", summary["complete"])
-        col3.metric("มีปัญหาบางส่วน", summary["has_issue"])
-        st.subheader("แยกตามประเภทเอกสาร")
-        doc_type_labels = {
-            "bank_slip": "สลิปโอนเงิน",
-            "stock_confirmation": "ใบยืนยันซื้อหุ้น",
-        }
-        by_doc_type = summary["by_doc_type"]
-        cols = st.columns(len(by_doc_type)) if by_doc_type else []
-        for col, (doc_type, count) in zip(cols, by_doc_type.items()):
-            col.metric(doc_type_labels.get(doc_type, doc_type), count)
-        st.subheader("ยอดรวมตามแอป (เฉพาะสลิปโอนเงิน)")
+        with col1:
+            st.markdown(
+                f"""<div class="metric-card metric-card-total">
+                    <span class="metric-label">เอกสารทั้งหมด</span>
+                    <span class="metric-value">{summary['total']}</span>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+        with col2:
+            st.markdown(
+                f"""<div class="metric-card metric-card-complete">
+                    <span class="metric-label">ครบถ้วน</span>
+                    <span class="metric-value">{summary['complete']}</span>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+        with col3:
+            st.markdown(
+                f"""<div class="metric-card metric-card-issue">
+                    <span class="metric-label">มีปัญหาบางส่วน</span>
+                    <span class="metric-value">{summary['has_issue']}</span>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+        st.write("")  # ช่องว่างเล็กน้อยก่อนแถวกราฟ
+
+        # แถวกราฟตรงกลาง: bar (ยอดรวมตามแอป) + line (แนวโน้มรายเดือน) วางคู่กัน
+        # (31 Aug 2026, Item 2 redesign) -- เลือกคู่นี้แทน bar+donut เพราะสอง
+        # กราฟนี้ตอบคนละคำถาม (ตอนนี้แอปไหนเยอะสุด vs แนวโน้มเปลี่ยนไปยังไง
+        # ตามเวลา) ไม่ใช่ข้อมูลชุดเดียวกันคนละรูปแบบแบบ bar+donut ที่ซ้ำซ้อนกัน
+        # -- ทั้งสองกราฟใช้ query ที่รับ start_date/end_date แล้ว จึงกรองตาม
+        # filter ด้านบนเหมือนกับการ์ดสรุปด้วย
+        chart_col1, chart_col2 = st.columns(2)
         totals_app = data["totals_by_app_bank_slip"]
-        if totals_app:
-            # เปลี่ยนจาก st.bar_chart() เป็น Altair chart แบบเต็ม -- เพิ่ม
-            # 23 Aug 2026 ตามที่ผู้ใช้แจ้งว่ากดดาวน์โหลดรูปกราฟ (ปุ่มในตัวกราฟ
-            # เอง) แล้วไม่มีหัวข้อติดไปด้วย ทำให้เอาไปใช้ที่อื่นแล้วไม่รู้ว่า
-            # คือกราฟอะไร -- สาเหตุคือ st.subheader() ด้านบนเป็นคนละ element
-            # จากตัวกราฟ ปุ่มดาวน์โหลดของกราฟ capture แค่ canvas ของกราฟเอง
-            # ไม่รวมข้อความ subheader ด้วย ส่วน st.bar_chart() (เวอร์ชันย่อ)
-            # ก็ไม่มีช่องให้ใส่ title ในตัวกราฟเองอยู่แล้ว -- Altair chart
-            # ใส่ .properties(title=...) ได้ตรงๆ ทำให้ title กลายเป็นส่วนหนึ่ง
-            # ของตัวกราฟจริง ติดไปกับรูปที่ดาวน์โหลดด้วยแน่นอน
-            df_totals = pd.DataFrame(totals_app)
-            chart_totals = (
-                alt.Chart(df_totals)
-                .mark_bar()
-                .encode(
-                    x=alt.X("source_app", title="แอป/ธนาคาร", sort="-y"),
-                    y=alt.Y("total_amount", title="ยอดรวม (บาท)"),
-                )
-                .properties(title="ยอดรวมตามแอป (เฉพาะสลิปโอนเงิน)")
-            )
-            st.altair_chart(chart_totals, use_container_width=True)
-            st.table(totals_app)
-        else:
-            st.info("ยังไม่มีข้อมูลสลิปโอนเงิน")
-        st.subheader("แนวโน้มรายเดือน (สลิปโอนเงิน)")
         trend = data["trend_by_month_bank_slip"]
-        if trend:
-            # เหตุผลเดียวกับกราฟด้านบน -- เปลี่ยนจาก st.line_chart() เป็น
-            # Altair chart เพื่อให้ title ติดไปกับรูปที่ดาวน์โหลดด้วย
-            df_trend = pd.DataFrame(trend)
-            df_trend["period"] = df_trend.apply(
-                lambda r: f"{int(r['year'])}-{int(r['month']):02d}", axis=1
-            )
-            chart_trend = (
-                alt.Chart(df_trend)
-                .mark_line(point=True)
-                .encode(
-                    x=alt.X("period", title="เดือน", sort=None),
-                    y=alt.Y("total_amount", title="ยอดรวม (บาท)"),
+
+        with chart_col1:
+            st.caption("ยอดรวมตามแอป")
+            if totals_app:
+                # เปลี่ยนจาก st.bar_chart() เป็น Altair chart แบบเต็ม -- เพิ่ม
+                # 23 Aug 2026 ตามที่ผู้ใช้แจ้งว่ากดดาวน์โหลดรูปกราฟ (ปุ่มในตัว
+                # กราฟเอง) แล้วไม่มีหัวข้อติดไปด้วย ทำให้เอาไปใช้ที่อื่นแล้ว
+                # ไม่รู้ว่าคือกราฟอะไร -- Altair ใส่ .properties(title=...)
+                # ได้ตรงๆ ทำให้ title ติดไปกับรูปที่ดาวน์โหลดด้วยแน่นอน
+                df_totals = pd.DataFrame(totals_app)
+                chart_totals = (
+                    alt.Chart(df_totals)
+                    .mark_bar()
+                    .encode(
+                        x=alt.X(
+                            "source_app", title="แอป/ธนาคาร", sort="-y",
+                            axis=alt.Axis(labelAngle=0),
+                        ),
+                        y=alt.Y("total_amount", title="ยอดรวม (บาท)"),
+                    )
+                    .properties(
+                        title="ยอดรวมตามแอป",
+                        padding={"top": 20, "left": 5, "right": 5, "bottom": 5},
+                    )
                 )
-                .properties(title="แนวโน้มรายเดือน (สลิปโอนเงิน)")
-            )
-            st.altair_chart(chart_trend, use_container_width=True)
-            st.table(trend)
-        else:
-            st.info("ยังไม่มีข้อมูลแนวโน้ม")
-        st.subheader("สรุปการซื้อหุ้น (ตาม symbol)")
-        stock = data["stock_summary"]
-        if stock:
-            st.table(stock)
-        else:
-            st.info("ยังไม่มีข้อมูลการซื้อหุ้น")
+                st.altair_chart(chart_totals, use_container_width=True)
+            else:
+                st.info("ยังไม่มีข้อมูลในช่วงที่เลือก")
+
+        with chart_col2:
+            st.caption("แนวโน้มรายเดือน")
+            if trend:
+                df_trend = pd.DataFrame(trend)
+                df_trend["period"] = df_trend.apply(
+                    lambda r: f"{int(r['year'])}-{int(r['month']):02d}", axis=1
+                )
+                chart_trend = (
+                    alt.Chart(df_trend)
+                    .mark_line(point=True)
+                    .encode(
+                        x=alt.X(
+                            "period", title="เดือน", sort=None,
+                            axis=alt.Axis(labelAngle=0),
+                        ),
+                        y=alt.Y("total_amount", title="ยอดรวม (บาท)"),
+                    )
+                    .properties(
+                        title="แนวโน้มรายเดือน",
+                        padding={"top": 20, "left": 5, "right": 5, "bottom": 5},
+                    )
+                )
+                st.altair_chart(chart_trend, use_container_width=True)
+            else:
+                st.info("ยังไม่มีข้อมูลในช่วงที่เลือก")
+
+        # ตารางตัวเลขดิบยังคงไว้ (ใต้กราฟ) เผื่ออยากเช็คตัวเลขเป๊ะๆ หรือ
+        # ดาวน์โหลดเป็น CSV -- ย่อเหลือ expander เดียวแทนที่จะโชว์เต็มค้างไว้
+        # ตลอด เพื่อไม่ให้หน้า Dashboard ที่กระชับขึ้นแล้วรกอีกครั้ง
+        #
+        # เปลี่ยนชื่อคอลัมน์เป็นภาษาไทย + ฟอร์แมตทศนิยมเป็น 2 ตำแหน่ง (31 Aug
+        # 2026) -- เดิม st.table(totals_app) ส่ง list[dict] ตรงๆ ทำให้เห็นชื่อ
+        # คอลัมน์ดิบจาก DB (source_app/count/total_amount) และ SQLite SUM()
+        # คืนทศนิยมมาแบบไม่ปัดเลย (เช่น 1250.0000) -- ใช้ pandas .style.format()
+        # จัดการทศนิยมแทนที่จะ round() ตรงๆ เพื่อให้ยังได้ comma thousand
+        # separator ติดมาด้วยในตัวเดียวกัน
+        if totals_app or trend:
+            with st.expander("ดูตัวเลขดิบ"):
+                if totals_app:
+                    st.write("ยอดรวมตามแอป")
+                    df_totals_display = pd.DataFrame(totals_app).rename(columns={
+                        "source_app": "แอป/ธนาคาร",
+                        "count": "จำนวนรายการ",
+                        "total_amount": "ยอดรวม (บาท)",
+                    })
+                    st.table(
+                        df_totals_display.style
+                        .format({"ยอดรวม (บาท)": "{:,.2f}"})
+                        .set_properties(
+                            subset=["จำนวนรายการ"],
+                            **{"text-align": "left"},
+                        )
+                    )
+                if trend:
+                    st.write("แนวโน้มรายเดือน")
+                    df_trend_display = pd.DataFrame(trend)
+                    df_trend_display["เดือน"] = df_trend_display["month"].map(THAI_MONTH_ABBR)
+                    df_trend_display = df_trend_display.rename(columns={
+                        "year": "ปี",
+                        "count": "จำนวนรายการ",
+                        "total_amount": "ยอดรวม (บาท)",
+                    })[["ปี", "เดือน", "จำนวนรายการ", "ยอดรวม (บาท)"]]
+                    st.table(
+                        df_trend_display.style
+                        .format({"ยอดรวม (บาท)": "{:,.2f}"})
+                        .set_properties(
+                            subset=["จำนวนรายการ"],
+                            **{"text-align": "left"},
+                        )
+                    )
+
+        # หมายเหตุ (31 Aug 2026): ตัด "แยกตามประเภทเอกสาร" และ "สรุปการซื้อหุ้น
+        # (ตาม symbol)" ออกจากหน้า Dashboard แล้วตามที่ตกลงกันไว้ -- ไม่คิดว่า
+        # จะมีคนใช้ stock_confirmation จริงจัง ฝั่ง backend (classify/parse/
+        # query) ยังใช้งานได้ปกติทุกอย่าง (data["stock_summary"] ยังส่งมาจาก
+        # API เหมือนเดิม) แค่ไม่เอามาแสดงในหน้านี้อีกต่อไปเฉยๆ
+
         st.subheader("รายการล่าสุด")
         if st.session_state.get("delete_success"):
             st.success(f"ลบ {st.session_state['delete_success']} เรียบร้อยแล้ว")
