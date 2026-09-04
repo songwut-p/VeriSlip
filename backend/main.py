@@ -9,7 +9,7 @@ from typing import Optional
 from backend.schemas import RegisterRequest, LoginRequest, TokenResponse
 from backend.auth_utils import create_access_token, get_current_user
 from db.users import create_user, authenticate_user
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Request
 from fastapi.responses import FileResponse
 from pytesseract import TesseractError
 from backend.schemas import AskRequest, SaveSlipRequest, DeleteSlipRequest
@@ -38,6 +38,33 @@ from backend.dashboard_queries import (
 )
 
 app = FastAPI(title="AI Document Assistant API")
+
+
+def get_client_ip(request: Request) -> str | None:
+    """ดึง IP ต้นทางของ request สำหรับ audit log (2 ก.ย. 2026)
+
+    ใช้ header X-Forwarded-For ก่อนเสมอ ไม่ใช่ request.client.host ตรงๆ --
+    เวลารันผ่าน ngrok (หรือ reverse proxy อื่นๆ) request.client.host จะเป็น
+    IP ของตัว ngrok/proxy เอง ไม่ใช่ IP จริงของคนที่เรียกเข้ามา ส่วน
+    X-Forwarded-For คือ header ที่ proxy ใส่ IP ต้นทางจริงไว้ให้
+
+    X-Forwarded-For อาจมีหลาย IP คั่นด้วย comma ถ้ามี proxy ซ้อนกันหลายชั้น
+    (เช่น "client_ip, proxy1_ip, proxy2_ip") -- เอาตัวแรกสุดเสมอ เพราะเป็น
+    IP ต้นทางจริงที่สุด (proxy แต่ละชั้นจะต่อ IP ของตัวเองท้าย header ไปเรื่อยๆ
+    ไม่ใช่ขึ้นต้น)
+
+    ถ้าไม่มี header นี้เลย (รันตรงๆ ไม่ผ่าน proxy เช่น localhost ตอน dev)
+    fallback ไปใช้ request.client.host ตามปกติ (จะได้ 127.0.0.1 ตอน dev
+    ซึ่งคาดหวังได้อยู่แล้ว ไม่ใช่บั๊ก)
+
+    หมายเหตุ: IP เดี่ยวๆ ไม่สามารถระบุตัวบุคคลได้ (ดูเหตุผลเต็มๆ ที่คุยกัน
+    ไว้: ต้องมีอำนาจทางกฎหมายขอ log จาก ISP ถึงจะรู้ว่า IP ไหนเป็นของใคร
+    ช่วงเวลาไหน) เก็บไว้แค่เป็น indicator เบื้องต้นเวลาตรวจสอบย้อนหลัง
+    ไม่ได้ตั้งใจทำเป็นระบบสืบสวนเต็มรูปแบบ"""
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.client.host if request.client else None
 
 
 @app.get("/health")
@@ -165,16 +192,19 @@ async def upload_slip(
 @app.post("/save-slip")
 async def save_slip(
     req: SaveSlipRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ):
     user_id = current_user["username"]
     record = {"filename": req.filename, "ocr_text": req.ocr_text, **req.parsed}
-    row = save_record(record, doc_type=req.doc_type, user_id=user_id)
+    row = save_record(record, doc_type=req.doc_type, user_id=user_id, extraction_flag=req.extraction_flag)
     doc_text = index_row(row)
 
     # audit log (26 Aug 2026): บันทึกว่า user นี้ upload record นี้เมื่อไหร่
     # ไม่มี snapshot เพราะไม่มี "ก่อน" ให้เทียบ (ดู db/audit_log.py)
-    log_upload(user_id, row["id"], row["filename"], req.doc_type)
+    # เพิ่ม ip_address (2 ก.ย. 2026) -- ดู get_client_ip() ด้านบนสำหรับ
+    # เหตุผลที่ต้องอ่านจาก X-Forwarded-For แทน request.client.host ตรงๆ
+    log_upload(user_id, row["id"], row["filename"], req.doc_type, ip_address=get_client_ip(request))
 
     return {
         "filename": row["filename"],
@@ -229,6 +259,7 @@ def download_slip_image(
 @app.post("/delete-slip")
 async def delete_slip_endpoint(
     req: DeleteSlipRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ):
     """ลบสลิป 1 รายการ -- ลบทั้ง SQLite, Chroma, และไฟล์รูปบนดิสก์ (ถ้ามี)
@@ -247,7 +278,8 @@ async def delete_slip_endpoint(
 
     # audit log (26 Aug 2026): เก็บ snapshot เต็มแถวไว้เผื่อกู้คืน
     # (ผู้ใช้ไม่เห็นเลย -- ยังคงข้อความเตือนแบบเดิมฝั่ง frontend)
-    log_delete(user_id, snapshot)
+    # เพิ่ม ip_address (2 ก.ย. 2026) -- ดู get_client_ip() ด้านบน
+    log_delete(user_id, snapshot, ip_address=get_client_ip(request))
 
     delete_row(filename, user_id)
     delete_slip_image(image_path)  # เงียบๆ ถ้า image_path เป็น None อยู่แล้ว
@@ -268,4 +300,3 @@ async def ask(
         semantic_search_fn=semantic_search,
     )
     return result
-    

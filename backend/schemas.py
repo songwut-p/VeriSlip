@@ -17,6 +17,11 @@ class SaveSlipRequest(BaseModel):
     # (bank_name เพียงอย่างเดียวแยกไม่ออก เพราะเป็นธนาคารเดียวกันคนละแอป) --
     # optional เพื่อไม่ทำให้ client เก่าที่ไม่ส่งมาพัง
     # user_id ถูกตัดออก (25 Aug 2026) -- มาจาก token แทน
+    extraction_flag: Optional[str] = None
+    # "ai_extract_100" หรือ "user_edited" (3 Sep 2026) -- frontend เทียบค่า
+    # ที่ผู้ใช้แก้กับค่าดิบจาก OCR ก่อนส่งมา เป็น hidden flag ไม่โชว์ผู้ใช้
+    # เห็นเลย เก็บไว้ query ย้อนหลังวัด accuracy ของ Qwen 8B เท่านั้น --
+    # optional เพื่อไม่ทำให้ client เก่าที่ไม่ส่งมาพัง (จะได้ NULL ใน DB แทน)
 
 
 class DeleteSlipRequest(BaseModel):
