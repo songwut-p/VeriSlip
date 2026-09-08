@@ -4,6 +4,7 @@ import streamlit as st
 from api_client import call_api
 from components import render_edit_section, _display_currency
 from constants import DOC_TYPE_LABELS
+from multi_upload import init_multi_queue, render_multi_file_upload
 
 
 def render_upload_page(queue_in_progress: bool):
@@ -33,7 +34,33 @@ def render_upload_page(queue_in_progress: bool):
                 f"⏳ กำลังประมวลผลไฟล์ในคิวอยู่ ({queue_done}/{queue_total}) — "
                 f"ปุ่มอัปโหลดไฟล์ชุดใหม่จะกดได้อีกครั้งหลังคิวปัจจุบันเสร็จ"
             )
-        upload_clicked = st.button("อัปโหลด", disabled=queue_in_progress)
+        # เพิ่มเช็ค mf_files เข้าไปด้วย (5 Sep 2026) -- queue_in_progress ที่
+        # ส่งมาจาก app.py คำนวณจาก state ของโหมดไฟล์เดียวเท่านั้น (upload_queue/
+        # current_upload) ยังไม่รู้จัก mf_files ของโหมดหลายไฟล์ -- ถ้าไม่เช็ค
+        # เพิ่มตรงนี้ ปุ่มจะกดซ้อนคิวได้ระหว่างทำ multi-file batch ค้างอยู่
+        # (ดู known gap ที่แจ้งไว้ -- ยังต้องเช็ค app.py จุดอื่นที่อ้างอิง
+        # queue_in_progress เหมือนกันด้วย เผื่อมีจุดอื่นที่ตกหล่นเช่นกัน)
+        multi_batch_active = st.session_state.get("mf_files") is not None
+        upload_clicked = st.button("อัปโหลด", disabled=queue_in_progress or multi_batch_active)
+
+        # ฟีเจอร์สลับไฟล์หลายไฟล์ (5 Sep 2026, สเปก 11 ข้อ ตกลง 3 ก.ย.) --
+        # ข้อ 1: ไฟล์เดียวใช้ flow เดิมทั้งหมดด้านล่างนี้ ไม่แตะเลย
+        # ไฟล์ ≥2 แยกไปใช้ multi_upload.py ทั้งกระบวนการ (คนละ state คนละ
+        # ชั้นจัดคิว แต่ยังเรียกใช้ field-rendering helper จาก components.py
+        # ร่วมกัน) -- เช็คก่อนว่ามีคิวหลายไฟล์ค้างอยู่จากรอบก่อนไหม (ยัง OCR
+        # ไม่ครบ หรือยังบันทึก/ยกเลิกไม่ครบ) ถ้ามีให้ทำต่อโดยไม่ต้องรอกดปุ่ม
+        # ใหม่ -- mf_files จะถูกลบออกจาก session_state เองตอนคิวหมด
+        # (render_multi_file_upload() ภายใน) ทำให้ตกกลับมาที่ flow เดิม
+        # อัตโนมัติในรอบถัดไป
+        if st.session_state.get("mf_files") is not None:
+            render_multi_file_upload()
+            return
+
+        if uploaded_files and upload_clicked and not queue_in_progress and len(uploaded_files) >= 2:
+            init_multi_queue(uploaded_files)
+            render_multi_file_upload()
+            return
+
         if uploaded_files and upload_clicked and not queue_in_progress:
             # เริ่มคิวใหม่ -- เก็บ bytes/name/type ของทุกไฟล์ที่เลือกไว้ (ยกเว้นไฟล์
             # แรกซึ่งจะถูกดึงไปเข้า OCR ทันทีในบล็อกถัดไปด้านล่าง) เพิ่ม 23 Aug 2026

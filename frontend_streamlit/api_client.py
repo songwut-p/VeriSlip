@@ -26,9 +26,15 @@ def call_api(method: str, path: str, spinner_text: str, **kwargs):
         except ValueError:
             detail = resp.text
         if resp.status_code == 401:
-            clear_auth(st.session_state.get("_cookie_manager"), "expired")
+            # 7 ก.ย. 2026: clear_auth() เขียนใหม่ทั้งหมดแล้ว ไม่ต้องส่ง
+            # cookie_manager เข้าไปอีกต่อไป (เขียนคุกกี้ผ่าน JS ตรงๆ แทน) --
+            # ดูรายละเอียดเต็มที่ auth.py
+            clear_auth("expired")
             st.error("เซสชันหมดอายุหรือยังไม่ได้เข้าสู่ระบบ กรุณาเข้าสู่ระบบใหม่")
-            st.rerun()
+            # ไม่เรียก st.rerun() ตรงนี้ -- ไม่จำเป็นต้องรีบ เพราะ access_token
+            # ถูกเคลียร์ใน session_state แล้ว ปล่อยให้ผู้ใช้กดอะไรก็ได้ในหน้า
+            # ถัดไป ซึ่งจะกระตุ้น rerun เองอัตโนมัติ แล้ว app.py จะพาไปหน้า
+            # login เองเพราะ token ถูกล้างไปแล้ว
         else:
             st.error(f"Backend error ({resp.status_code}): {detail}")
     except requests.exceptions.RequestException as e:

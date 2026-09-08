@@ -113,6 +113,26 @@ def inject_css():
         color: var(--soft-red-text);
     }
     
+    /* ปุ่ม secondary (5 Sep 2026, ฟีเจอร์สลับไฟล์หลายไฟล์) -- แท็บที่ไม่ได้
+    active อยู่ใช้ type="secondary" ส่วนแท็บ active ใช้ type="primary" (ตกลง
+    ไว้ตอนออกแบบแท็บบาร์) แต่กฎ ".stButton button" ด้านบนบังคับเขียวเข้มให้
+    ทุกปุ่มเหมือนกันหมดไม่แยก kind เลย (มีแค่ [kind="tertiary"] ที่ override
+    ไว้ก่อนหน้า) -- ผลคือแท็บ active/inactive หน้าตาเหมือนกันเป๊ะ แยกไม่ออก
+    เลยว่ากำลังดูไฟล์ไหนอยู่ (บั๊กที่เจอจากการทดสอบจริง 5 Sep 2026) -- เพิ่ม
+    กฎเจาะจง [kind="secondary"] ให้เป็น outline อ่อนแทน (พื้นขาว/เทาอ่อน ขอบ
+    เทา ตัวหนังสือเข้ม) ต่างจาก primary (เขียวเข้มทึบ) ชัดเจน สื่อ "ยังไม่ได้
+    เลือก" ได้ทันทีโดยไม่ต้องอ่านตัวเลขเทียบเอง */
+    .stButton button[kind="secondary"] {
+        background-color: var(--bg-card);
+        color: var(--text-primary);
+        border: 1px solid var(--border-color);
+    }
+    .stButton button[kind="secondary"]:hover {
+        background-color: var(--soft-green-bg);
+        border-color: var(--accent-emerald-mid);
+        color: var(--text-primary);
+    }
+    
     /* กล่องฟอร์มแก้ไขข้อมูลใน Upload Slip -- height ตายตัว + scrollbar ของ
     ตัวเอง (3 Sep 2026) เคยลอง position: sticky มา 2 รอบแล้วไม่ติดจริงเพราะ
     สู้ layout ภายในของ Streamlit ไม่ได้ -- เปลี่ยนกลยุทธ์เป็นให้กล่องฟอร์ม
@@ -297,3 +317,22 @@ def inject_css():
     สำหรับหัวตารางเหลืออยู่เลยในไฟล์นี้ */
     </style>
     """, unsafe_allow_html=True)
+
+
+def hide_sidebar():
+    """ซ่อน sidebar ทั้งแถบ (รวมปุ่ม collapse/expand ตัวลูกศรด้วย) -- เพิ่ม
+    7 ก.ย. 2026 หลังพบว่า Streamlit เวอร์ชันที่ใช้อยู่ไม่ยุบ sidebar ให้เอง
+    ตอนไม่มีอะไรอยู่ข้างในเหมือนที่คอมเมนต์เดิมใน app.py สมมติไว้ (30 Aug
+    2026) -- กลายเป็นกล่องขาวโล่งๆ ค้างอยู่ข้างหน้า login แทน เรียกฟังก์ชันนี้
+    เฉพาะตอนยังไม่ login เท่านั้น (ก่อน render_login_screen()) ไม่ต้องเรียก
+    หลัง login แล้ว เพราะตอนนั้น sidebar มีเมนู/ปุ่มออกจากระบบที่ต้องใช้จริง"""
+    st.markdown(
+        """
+        <style>
+        section[data-testid="stSidebar"] {
+            display: none;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
