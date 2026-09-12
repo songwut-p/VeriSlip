@@ -36,9 +36,15 @@ from backend.dashboard_queries import (
     get_stock_summary,
     search_slips,
 )
-
+from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI(title="AI Document Assistant API")
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def get_client_ip(request: Request) -> str | None:
     """ดึง IP ต้นทางของ request สำหรับ audit log (2 ก.ย. 2026)

@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+:root {
+  --color-page-bg: #F3F4F6;      /* พื้นหลังหน้าเว็บ เทาอ่อน */
+  --color-card-bg: #FFFFFF;      /* การ์ด/กล่องต่างๆ ขาว */
+  --color-emerald: #0F4C3A;      /* เขียวเข้ม -- ปุ่ม, sidebar, metric card */
+  --color-emerald-hover: #0C3D2E;
+  --color-soft-green-bg: #E6F4EC; /* พื้นเขียวอ่อน -- หัวตาราง */
+  --color-border-green: #D1E7DD;
+  --color-border-gray: #E5E7EB;
+  --color-text-primary: #111827;
+}
+
+body {
+  background: var(--color-page-bg);
+  color: var(--color-text-primary);
+}
+
+@theme inline {
+  --color-page-bg: var(--color-page-bg);
+  --color-card-bg: var(--color-card-bg);
+  --color-emerald: var(--color-emerald);
+  --color-emerald-hover: var(--color-emerald-hover);
+  --color-soft-green-bg: var(--color-soft-green-bg);
+  --color-border-green: var(--color-border-green);
+  --color-border-gray: var(--color-border-gray);
+  --color-text-primary: var(--color-text-primary);
+}
