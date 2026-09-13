@@ -3,6 +3,7 @@
 import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { ShieldCheck, Eye, EyeOff } from "lucide-react";
 import { useAuth, ApiRequestError } from "@/contexts/AuthContext";
 
 export default function LoginPage() {
@@ -10,6 +11,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -31,9 +33,18 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-page-bg">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm rounded-xl bg-card-bg p-8 shadow-sm"
+        className="w-full max-w-sm rounded-xl border border-border-gray bg-card-bg p-8 shadow-xl"
       >
-        <h1 className="mb-6 text-xl font-semibold text-text-primary">เข้าสู่ระบบ</h1>
+        <div className="mb-8 text-center">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-soft-green-bg">
+            <ShieldCheck className="text-emerald" size={24} />
+          </div>
+          <h2 className="text-2xl font-extrabold tracking-tight text-emerald">
+            VeriSlip
+          </h2>
+          <h1 className="mt-4 text-xl font-semibold text-text-primary">เข้าสู่ระบบ</h1>
+          <p className="mt-2 text-sm text-text-secondary">กรอกข้อมูลเพื่อเข้าใช้งาน</p>
+        </div>
 
         {error && (
           <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -47,17 +58,26 @@ export default function LoginPage() {
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           required
-        />
+          />
 
         <label className="mb-1 block text-sm text-text-primary">รหัสผ่าน</label>
-        <input
-          type="password"
-          className="mb-6 w-full rounded-lg border border-border-gray px-3 py-2 outline-none focus:border-emerald"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
-
+        <div className="relative mb-8">
+          <input
+            type={showPassword ? "text" : "password"}
+            className="w-full rounded-lg border border-border-gray px-3 py-2 pr-10 outline-none focus:border-emerald"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            />
+          <button
+            type="button"
+            onClick={() => setShowPassword((prev) => !prev)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary"
+            tabIndex={-1}
+          >
+            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
+          </div>
         <button
           type="submit"
           disabled={isSubmitting}

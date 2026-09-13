@@ -357,6 +357,44 @@ def list_known_accounts(user_id: str) -> list[dict[str, Any]]:
         return [{"account_number": k, "display_name": v} for k, v in seen.items()]
 
 
+def get_income_expense_summary(
+    user_id: str,
+    doc_type: str = "bank_slip",
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
+    """
+    Sum of amounts split by transaction_type ("income"/"expense"), for the
+    Dashboard's net-amount card (13 ก.ย. 2026).
+
+    Rows with transaction_type IS NULL (rows saved before this feature
+    existed, or never classified for any other reason) are silently
+    excluded from both sums -- there is no way to know their direction, so
+    they don't contribute to net/income/expense rather than being guessed
+    into either bucket (same "don't guess" principle as _date_filter_clause
+    dropping undated rows).
+
+    amount_issue IS NULL mirrors get_totals_by_app()'s exclusion of rows
+    with a flagged amount extraction issue -- a garbled amount shouldn't
+    silently skew the net total.
+    """
+    date_clause, date_params = _date_filter_clause(start_date, end_date)
+    with _connect() as conn:
+        row = conn.execute(
+            f"""
+            SELECT
+                COALESCE(SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END), 0) AS income,
+                COALESCE(SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END), 0) AS expense
+            FROM slips
+            WHERE doc_type = ? AND amount_issue IS NULL AND user_id = ?{date_clause}
+            """,
+            (doc_type, user_id, *date_params),
+        ).fetchone()
+        income = row["income"] or 0
+        expense = row["expense"] or 0
+        return {"income": income, "expense": expense, "net": income - expense}
+
+
 def get_stock_summary(user_id: str) -> list[dict[str, Any]]:
     """
     Per-symbol rollup for stock_confirmation rows. symbol/exchange/order_type

@@ -32,15 +32,82 @@ function CustomCursor(props: any) {
     return <rect x={x} y={y} width={width} height={height} fill="#0F4C3A" fillOpacity={0.08} />;
 }
 
-export function MonthlyCountChart({ data }: { data: MonthlyTrend[] }) {
-  const currentYear = new Date().getFullYear();
-  const chartData = THAI_MONTHS.map((label, index) => {
-    const monthNumber = index + 1;
-    const match = data.find(
-      (item) => item.month === monthNumber && item.year === currentYear
+interface YearMonth {
+  year: number;
+  month: number; // 1-12
+}
+
+// สร้างรายการ (year, month) ทุกเดือนตั้งแต่ start ถึง end แบบรวมปลายทั้งคู่
+// (inclusive) -- ใช้แทนของเดิมที่ hardcode 12 เดือนของปีปัจจุบันตายตัว
+function enumerateMonths(start: YearMonth, end: YearMonth): YearMonth[] {
+  const months: YearMonth[] = [];
+  let y = start.year;
+  let m = start.month;
+  // กันลูปไม่รู้จบถ้า start มาหลัง end ผิดพลาด (ไม่ควรเกิดขึ้นจริง)
+  let guard = 0;
+  while ((y < end.year || (y === end.year && m <= end.month)) && guard < 1000) {
+    months.push({ year: y, month: m });
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+    guard += 1;
+  }
+  return months;
+}
+
+function parseIsoDate(iso: string): YearMonth {
+  const [y, m] = iso.split("-").map(Number);
+  return { year: y, month: m };
+}
+
+// แปลง ค.ศ. -> ตัวเลขท้าย 2 หลักของ พ.ศ. (เช่น 2026 -> "69") ใช้ต่อท้าย
+// ชื่อเดือนเฉพาะตอนกราฟครอบคลุมมากกว่า 1 ปี ป้องกันเดือนซ้ำชื่อกันข้ามปี
+// (ตัวเลขเดียวพอ ไม่ต้องเต็ม 4 หลัก เพราะพื้นที่แกน x จำกัด)
+function shortBuddhistYear(year: number): string {
+  return String((year + 543) % 100).padStart(2, "0");
+}
+
+interface MonthlyCountChartProps {
+  data: MonthlyTrend[];
+  // startDate/endDate (13 ก.ย. 2026): ช่วงวันที่ที่เลือกไว้จาก DateRangeFilter
+  // (ทั้ง preset และ manual ส่งมาเป็น ISO string เดียวกัน) ใช้กำหนดว่ากราฟ
+  // ควร zero-fill กี่เดือน/เดือนไหนบ้าง แทนที่จะโชว์ 12 เดือนของปีปัจจุบัน
+  // ตายตัวเหมือนเดิม -- undefined ทั้งคู่ = ไม่ได้กรอง ("ทั้งหมด")
+  startDate?: string;
+  endDate?: string;
+}
+
+export function MonthlyCountChart({ data, startDate, endDate }: MonthlyCountChartProps) {
+  let months: YearMonth[];
+
+  if (startDate && endDate) {
+    // มีตัวกรองช่วงวันที่ชัดเจน (preset หรือ manual) -- โชว์เฉพาะเดือนใน
+    // ช่วงนั้นเป๊ะๆ ตามที่ขอ (เดิมโชว์ 12 เดือนเสมอไม่สนตัวกรอง)
+    months = enumerateMonths(parseIsoDate(startDate), parseIsoDate(endDate));
+  } else if (data.length > 0) {
+    // "ทั้งหมด" (ไม่กรอง) -- derive ช่วงเดือนจากข้อมูลจริงที่มีอยู่ แทนที่จะ
+    // ตายตัวเป็นปีปัจจุบัน เผื่อมีข้อมูลข้ามปีจริง
+    const sorted = [...data].sort((a, b) => a.year * 12 + a.month - (b.year * 12 + b.month));
+    months = enumerateMonths(
+      { year: sorted[0].year, month: sorted[0].month },
+      { year: sorted[sorted.length - 1].year, month: sorted[sorted.length - 1].month }
     );
+  } else {
+    // ไม่มีข้อมูลเลยและไม่มีตัวกรอง -- fallback โชว์แค่เดือนปัจจุบันเดือนเดียว
+    // (ไม่มีข้อมูลอ้างอิงให้กำหนดช่วงกว้างกว่านี้ได้อย่างมีความหมาย)
+    const now = new Date();
+    months = [{ year: now.getFullYear(), month: now.getMonth() + 1 }];
+  }
+
+  const spansMultipleYears = new Set(months.map((m) => m.year)).size > 1;
+
+  const chartData = months.map(({ year, month }) => {
+    const match = data.find((item) => item.month === month && item.year === year);
+    const baseLabel = THAI_MONTHS[month - 1];
     return {
-      label,
+      label: spansMultipleYears ? `${baseLabel} ${shortBuddhistYear(year)}` : baseLabel,
       amount: match ? match.total_amount : 0,
     };
   });

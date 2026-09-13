@@ -35,6 +35,7 @@ from backend.dashboard_queries import (
     get_recent_slips,
     get_stock_summary,
     search_slips,
+    get_income_expense_summary,
 )
 from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI(title="AI Document Assistant API")
@@ -107,6 +108,11 @@ def dashboard_summary(
         "trend_by_month_bank_slip": get_trend_by_month(user_id, "bank_slip", start_date=sd, end_date=ed),
         "stock_summary": get_stock_summary(user_id),
         "recent_slips": get_recent_slips(user_id, limit=5),
+        # income_expense (13 ก.ย. 2026): การ์ดยอดสุทธิใหม่ -- ใช้ start_date/
+        # end_date ตัวเดียวกับที่ผ่านมาจาก query param อยู่แล้ว (ปุ่ม preset
+        # ฝั่ง frontend จะแปลงเป็น start_date/end_date ก่อนยิงมาที่นี่ ไม่มี
+        # endpoint หรือ param ใหม่)
+        "income_expense": get_income_expense_summary(user_id, doc_type="bank_slip", start_date=sd, end_date=ed),
     }
 
 
@@ -203,7 +209,16 @@ async def save_slip(
 ):
     user_id = current_user["username"]
     record = {"filename": req.filename, "ocr_text": req.ocr_text, **req.parsed}
-    row = save_record(record, doc_type=req.doc_type, user_id=user_id, extraction_flag=req.extraction_flag)
+    # transaction_type (13 ก.ย. 2026): "income"/"expense" ที่ผู้ใช้เลือกเอง
+    # ในฟอร์ม human-in-the-loop -- ส่งต่อ pattern เดียวกับ extraction_flag
+    # (ไม่ได้อยู่ใน req.parsed เพราะไม่ใช่ค่าที่ OCR/LLM parse ได้)
+    row = save_record(
+        record,
+        doc_type=req.doc_type,
+        user_id=user_id,
+        extraction_flag=req.extraction_flag,
+        transaction_type=req.transaction_type,
+    )
     doc_text = index_row(row)
 
     # audit log (26 Aug 2026): บันทึกว่า user นี้ upload record นี้เมื่อไหร่

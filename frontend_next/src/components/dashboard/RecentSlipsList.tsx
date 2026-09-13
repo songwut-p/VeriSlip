@@ -47,8 +47,14 @@ export function RecentSlipsList({
               <p className="text-sm font-semibold text-text-primary">
                 {slip.amount.toLocaleString("th-TH")} บาท
               </p>
-              {slip.has_issue === 1 && (
-                <span className="text-xs text-red-600">มีปัญหา</span>
+              {slip.has_issue === 1 ? (
+                <span className="mt-1 inline-block rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-600">
+                  ควรตรวจสอบ
+                </span>
+                ) : (
+                <span className="mt-1 inline-block rounded-full bg-soft-green-bg px-2 py-0.5 text-xs font-medium text-emerald">
+                  สมบูรณ์
+                </span>
               )}
             </div>
 

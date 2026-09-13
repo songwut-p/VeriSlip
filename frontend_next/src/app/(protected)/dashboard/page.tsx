@@ -6,6 +6,8 @@ import { apiFetch, ApiRequestError } from "@/lib/api";
 import type { DashboardSummaryResponse, RecentSlip } from "@/types/dashboard-types";
 import { MonthlyCountChart } from "@/components/dashboard/MonthlyCountChart";
 import { RecentSlipsList } from "@/components/dashboard/RecentSlipsList";
+import { SummaryCards } from "@/components/dashboard/SummaryCards";
+import DateRangeFilter, { type DateRange } from "@/components/dashboard/DateRangeFilter";
 
 export default function DashboardPage() {
   const { token } = useAuth();
@@ -15,11 +17,22 @@ export default function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<RecentSlip[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  // dateRange (13 ก.ย. 2026): มาจาก DateRangeFilter (preset หรือ manual --
+  // ดูตรรกะ "ใครกดหลังสุดชนะ" ใน DateRangeFilter.tsx เอง) คุมทั้งการ์ดสรุป
+  // และกราฟรายเดือน เพราะทั้งคู่มาจาก endpoint /dashboard/summary เดียวกัน
+  const [dateRange, setDateRange] = useState<DateRange>({});
 
-  function fetchSummary() {
+  function fetchSummary(range: DateRange) {
     if (!token) return;
     setIsLoading(true);
-    apiFetch<DashboardSummaryResponse>("/dashboard/summary", { token })
+    const params = new URLSearchParams();
+    if (range.start_date) params.set("start_date", range.start_date);
+    if (range.end_date) params.set("end_date", range.end_date);
+    const query = params.toString();
+    apiFetch<DashboardSummaryResponse>(
+      `/dashboard/summary${query ? `?${query}` : ""}`,
+      { token }
+    )
       .then(setData)
       .catch((err) => {
         setError(err instanceof ApiRequestError ? err.message : "โหลดข้อมูลไม่สำเร็จ");
@@ -28,8 +41,9 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    fetchSummary();
-  }, [token]);
+    fetchSummary(dateRange);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ตั้งใจ trigger เฉพาะตอน token หรือ dateRange เปลี่ยน
+  }, [token, dateRange]);
 
   function handleSearch() {
     if (!token || !searchQuery.trim()) {
@@ -58,7 +72,7 @@ export default function DashboardPage() {
       .then(() => {
         setSearchResults(null);
         setSearchQuery("");
-        fetchSummary();
+        fetchSummary(dateRange);
       })
       .catch((err) => {
         alert(err instanceof ApiRequestError ? err.message : "ลบไม่สำเร็จ");
@@ -85,94 +99,79 @@ export default function DashboardPage() {
     }
   }
 
-  if (isLoading) {
-    return <div className="p-6 text-text-primary">กำลังโหลด...</div>;
-  }
-
-  if (error) {
-    return (
-      <div className="m-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-        {error}
-      </div>
-    );
-  }
-
-  if (!data) return null;
-
-  const { summary } = data;
-
   return (
     <div className="p-6">
       <h1 className="mb-6 text-xl font-semibold text-text-primary">แดชบอร์ด</h1>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <SummaryCard label="ทั้งหมด" value={summary.total} color="blue" />
-        <SummaryCard label="สมบูรณ์" value={summary.complete} color="green" />
-        <SummaryCard label="มีปัญหา" value={summary.has_issue} color="red" />
-      </div>
+      {/* DateRangeFilter ต้องอยู่นอกเงื่อนไข isLoading/data เสมอ (13 ก.ย. 2026,
+          บั๊กที่เจอ) -- เดิม isLoading ทำให้ทั้งหน้า early-return เป็นข้อความ
+          "กำลังโหลด..." แทนที่ ซึ่ง unmount ทั้ง component tree รวมถึง
+          DateRangeFilter ไปด้วย พอโหลดเสร็จ component ถูกสร้างใหม่ทั้งหมด
+          ทำให้ state ภายใน (activePreset/manualStart/manualEnd) รีเซ็ตกลับ
+          ค่าเริ่มต้นทุกครั้งที่กรองใหม่ -- ทั้งปุ่ม preset ไม่ค้างสีที่เลือก
+          และช่อง manual date เหมือนกดไม่ติด ทั้งที่ค่าจริงถูกส่งไป backend
+          ถูกต้องอยู่แล้ว (แค่ UI ไม่สะท้อนสถานะให้เห็น) */}
+      <DateRangeFilter onChange={setDateRange} />
 
-      <div className="mt-8">
-        <h2 className="mb-4 text-lg font-medium text-text-primary">ยอดเงินรวมต่อเดือน</h2>
-        <MonthlyCountChart data={data.trend_by_month_bank_slip} />
-      </div>
+      {error && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
-      <div className="mt-8 flex gap-2">
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => {
-            const value = e.target.value;
-            setSearchQuery(value);
-            if (value.trim() === "") {
-              setSearchResults(null);
-            }
-          }}
-          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-          placeholder="ค้นหาจากชื่อไฟล์ ผู้โอน ผู้รับ หรือธนาคาร"
-          className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm"
-        />
-        <button
-          onClick={handleSearch}
-          disabled={isSearching}
-          className="rounded-lg bg-emerald-800 px-4 py-2 text-sm text-white"
-        >
-          {isSearching ? "กำลังค้นหา..." : "ค้นหา"}
-        </button>
-      </div>
+      {isLoading && !data && (
+        <div className="text-text-primary">กำลังโหลด...</div>
+      )}
 
-      <div className="mt-4">
-        <h2 className="mb-4 text-lg font-medium text-text-primary">
-          {searchResults ? "ผลการค้นหา" : "รายการล่าสุด"}
-        </h2>
-        <RecentSlipsList
-          slips={searchResults ?? data.recent_slips}
-          onDelete={handleDelete}
-          onDownload={handleDownload}
-        />
-      </div>
-    </div>
-  );
-}
+      {data && (
+        <>
+          <SummaryCards summary={data.summary} incomeExpense={data.income_expense} />
 
-function SummaryCard({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: number;
-  color: "blue" | "green" | "red";
-}) {
-  const colorClasses = {
-    blue: "border-blue-200 bg-blue-50 text-blue-700",
-    green: "border-green-200 bg-green-50 text-green-700",
-    red: "border-red-200 bg-red-50 text-red-700",
-  }[color];
+          <div className="mt-8">
+            <h2 className="mb-4 text-lg font-medium text-text-primary">ยอดเงินรวมต่อเดือน</h2>
+            <MonthlyCountChart
+              data={data.trend_by_month_bank_slip}
+              startDate={dateRange.start_date}
+              endDate={dateRange.end_date}
+            />
+          </div>
 
-  return (
-    <div className={`rounded-xl border p-5 ${colorClasses}`}>
-      <p className="text-sm">{label}</p>
-      <p className="mt-1 text-3xl font-semibold">{value.toLocaleString("th-TH")}</p>
+          <div className="mt-8 flex gap-2">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSearchQuery(value);
+                if (value.trim() === "") {
+                  setSearchResults(null);
+                }
+              }}
+              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+              placeholder="ค้นหาจากชื่อไฟล์ ผู้โอน ผู้รับ หรือธนาคาร"
+              className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            />
+            <button
+              onClick={handleSearch}
+              disabled={isSearching}
+              className="rounded-lg bg-emerald-800 px-4 py-2 text-sm text-white"
+            >
+              {isSearching ? "กำลังค้นหา..." : "ค้นหา"}
+            </button>
+          </div>
+
+          <div className="mt-4">
+            <h2 className="mb-4 text-lg font-medium text-text-primary">
+              {searchResults ? "ผลการค้นหา" : "รายการล่าสุด"}
+            </h2>
+            <RecentSlipsList
+              slips={searchResults ?? data.recent_slips}
+              onDelete={handleDelete}
+              onDownload={handleDownload}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 }

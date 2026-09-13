@@ -22,6 +22,10 @@ class SaveSlipRequest(BaseModel):
     # ที่ผู้ใช้แก้กับค่าดิบจาก OCR ก่อนส่งมา เป็น hidden flag ไม่โชว์ผู้ใช้
     # เห็นเลย เก็บไว้ query ย้อนหลังวัด accuracy ของ Qwen 8B เท่านั้น --
     # optional เพื่อไม่ทำให้ client เก่าที่ไม่ส่งมาพัง (จะได้ NULL ใน DB แทน)
+    transaction_type: Optional[str] = None
+    # "income" หรือ "expense" (13 ก.ย. 2026) -- ผู้ใช้เลือกเองในฟอร์ม
+    # human-in-the-loop ก่อนบันทึกเสมอ ไม่ได้เดา -- optional เพื่อไม่ทำให้
+    # client เก่าที่ไม่ส่งมาพัง (จะได้ NULL ใน DB แทน)
 
 
 class DeleteSlipRequest(BaseModel):

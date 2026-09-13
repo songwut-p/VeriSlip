@@ -11,12 +11,23 @@ export interface DashboardSummary {
   issues_by_doc_type: Record<string, DocTypeIssueCount>;
 }
 
+// income_expense (13 ก.ย. 2026): ยอดรวมแยกรายรับ/รายจ่าย/สุทธิ สำหรับการ์ด
+// ยอดสุทธิใหม่บน Dashboard -- คำนวณจาก transaction_type ที่ผู้ใช้เลือกเองใน
+// ฟอร์ม human-in-the-loop ตอนบันทึกสลิป (แถวเก่าที่ transaction_type เป็น
+// NULL จะไม่ถูกนับเข้า income/expense เลย ไม่ใช่ถูกเดาเข้าฝั่งใดฝั่งหนึ่ง)
+export interface IncomeExpenseSummary {
+  income: number;
+  expense: number;
+  net: number;
+}
+
 // ส่วนอื่นของ response (กราฟ/รายการล่าสุด) จะเพิ่ม type ตอนทำขั้นถัดไป
-// ตอนนี้ type แค่ที่ใช้จริง (summary) พอ
+// ตอนนี้ type แค่ที่ใช้จริง (summary + income_expense) พอ
 export interface DashboardSummaryResponse {
   summary: DashboardSummary;
   trend_by_month_bank_slip: MonthlyTrend[];
   recent_slips: RecentSlip[];
+  income_expense: IncomeExpenseSummary;
   [key: string]: unknown;
 }
 

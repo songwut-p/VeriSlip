@@ -20,7 +20,7 @@ export default function Sidebar() {
   };
 
   return (
-    <aside className="flex h-screen w-56 shrink-0 flex-col justify-between border-r border-border-gray bg-card-bg p-4">
+    <aside className="flex h-full w-56 shrink-0 flex-col justify-between border-r border-border-gray bg-card-bg p-4">
       <nav className="flex flex-col gap-1">
         {NAV_ITEMS.map((item) => {
           const isActive = pathname === item.href;

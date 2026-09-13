@@ -209,7 +209,9 @@ def guess_source_app(filename: str, bank_name: str, ocr_text: str | None = None)
     return "unknown"
 
 
-def extract_record(record: dict, doc_type: str = "bank_slip", user_id: str = "default", extraction_flag: str | None = None) -> dict:
+def extract_record(record: dict, doc_type: str = "bank_slip", user_id: str = "default",
+                    extraction_flag: str | None = None,
+                    transaction_type: str | None = None) -> dict:
     fields = unwrap(record)
     filename = fields.get("filename") or record.get("filename") or "UNKNOWN"
 
@@ -259,6 +261,11 @@ def extract_record(record: dict, doc_type: str = "bank_slip", user_id: str = "de
             # extraction_flag (3 Sep 2026): "ai_extract_100"/"user_edited" จาก
             # frontend หรือ None สำหรับ batch import เก่าที่ไม่มีข้อมูลนี้
             "extraction_flag": extraction_flag,
+            # transaction_type (13 ก.ย. 2026): "income"/"expense" ที่ผู้ใช้
+            # เลือกเองในฟอร์ม human-in-the-loop หรือ None สำหรับ batch
+            # import เก่าที่ไม่มีข้อมูลนี้ -- เหตุผลเดียวกับ extraction_flag:
+            # ไม่ใช่ค่าที่ OCR/LLM parse ได้ เป็นการยืนยันของผู้ใช้ล้วนๆ
+            "transaction_type": transaction_type,
         }
         return row
 
@@ -298,6 +305,11 @@ def extract_record(record: dict, doc_type: str = "bank_slip", user_id: str = "de
         # extraction_flag (3 Sep 2026): "ai_extract_100"/"user_edited" จาก
         # frontend หรือ None สำหรับ batch import เก่าที่ไม่มีข้อมูลนี้
         "extraction_flag": extraction_flag,
+        # transaction_type (13 ก.ย. 2026): "income"/"expense" ที่ผู้ใช้
+        # เลือกเองในฟอร์ม human-in-the-loop หรือ None สำหรับ batch import
+        # เก่าที่ไม่มีข้อมูลนี้ -- เหตุผลเดียวกับ extraction_flag: ไม่ใช่ค่า
+        # ที่ OCR/LLM parse ได้ เป็นการยืนยันของผู้ใช้ล้วนๆ
+        "transaction_type": transaction_type,
     }
     return row
 
@@ -309,14 +321,14 @@ INSERT INTO slips (
     transaction_id, datetime_raw, datetime_year, datetime_month, datetime_day,
     bank_name_issue, amount_issue, sender_name_issue, sender_account_issue,
     recipient_name_issue, recipient_account_issue, transaction_id_issue, datetime_issue,
-    source_app, doc_type, symbol, raw_json, extraction_flag, updated_at
+    source_app, doc_type, symbol, raw_json, extraction_flag, transaction_type, updated_at
 ) VALUES (
     :filename, :user_id, :bank_name, :amount, :currency,
     :sender_name, :sender_account, :recipient_name, :recipient_account,
     :transaction_id, :datetime_raw, :datetime_year, :datetime_month, :datetime_day,
     :bank_name_issue, :amount_issue, :sender_name_issue, :sender_account_issue,
     :recipient_name_issue, :recipient_account_issue, :transaction_id_issue, :datetime_issue,
-    :source_app, :doc_type, :symbol, :raw_json, :extraction_flag, CURRENT_TIMESTAMP
+    :source_app, :doc_type, :symbol, :raw_json, :extraction_flag, :transaction_type, CURRENT_TIMESTAMP
 )
 -- conflict target ต้องเป็น (filename, user_id) คู่กัน ไม่ใช่ filename เฉยๆ:
 -- ถ้าใช้ filename อย่างเดียว user คนละคนอัปโหลดไฟล์ชื่อซ้ำกันจะเขียนทับข้อมูลกันเงียบๆ
@@ -331,10 +343,11 @@ ON CONFLICT(filename, user_id) DO UPDATE SET
     recipient_name_issue=excluded.recipient_name_issue, recipient_account_issue=excluded.recipient_account_issue,
     transaction_id_issue=excluded.transaction_id_issue, datetime_issue=excluded.datetime_issue,
     source_app=excluded.source_app, doc_type=excluded.doc_type, symbol=excluded.symbol, raw_json=excluded.raw_json,
-    extraction_flag=excluded.extraction_flag, updated_at=CURRENT_TIMESTAMP;
+    extraction_flag=excluded.extraction_flag, transaction_type=excluded.transaction_type, updated_at=CURRENT_TIMESTAMP;
 """
 
-def save_record(record: dict, doc_type: str = "bank_slip", user_id: str = "default", db_path: str = DB_PATH, extraction_flag: str | None = None) -> dict:
+def save_record(record: dict, doc_type: str = "bank_slip", user_id: str = "default", db_path: str = DB_PATH,
+                 extraction_flag: str | None = None, transaction_type: str | None = None) -> dict:
     """
     บันทึก record เดียว (เช่น จาก API /save-slip) ลง SQLite
     reuse extract_record()/UPSERT_SQL เดียวกับ batch import เพื่อไม่ให้ logic ซ้ำซ้อน/ไม่ตรงกัน
@@ -355,8 +368,14 @@ def save_record(record: dict, doc_type: str = "bank_slip", user_id: str = "defau
     ถ้าผู้เรียกไม่ได้ส่งมา (เช่น batch import เก่าจาก JSON) -- ต่างจาก field
     อื่นๆ ตรงที่ไม่ได้อยู่ใน `record` dict เลย ต้องรับเป็น parameter แยกเพราะ
     ไม่ใช่ค่าที่ OCR/LLM parse ได้ แต่เป็นผลเทียบก่อน/หลังแก้ไขของผู้ใช้
+
+    เพิ่ม transaction_type (13 ก.ย. 2026): "income"/"expense" ที่ผู้ใช้เลือก
+    เองในฟอร์ม human-in-the-loop ก่อนบันทึก -- pattern เดียวกับ
+    extraction_flag ทุกประการ (parameter แยก ไม่ได้อยู่ใน record dict
+    เพราะไม่ใช่ค่าที่ OCR/LLM parse ได้)
     """
-    row = extract_record(record, doc_type=doc_type, user_id=user_id, extraction_flag=extraction_flag)
+    row = extract_record(record, doc_type=doc_type, user_id=user_id,
+                          extraction_flag=extraction_flag, transaction_type=transaction_type)
     conn = sqlite3.connect(db_path)
     conn.execute(UPSERT_SQL, row)
     cur = conn.execute(

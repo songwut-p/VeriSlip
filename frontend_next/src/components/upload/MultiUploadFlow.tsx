@@ -23,6 +23,10 @@ interface QueueFile {
   error: string | null;
   result: UploadSlipResponse | null;
   editedValues: Record<string, string>;
+  // transaction_type (13 ก.ย. 2026): แยกเก็บต่อไฟล์ในคิว เพราะแต่ละไฟล์
+  // เป็นรายรับ/รายจ่ายไม่เหมือนกันได้ -- ต่างจาก SingleUploadFlow ที่มีแค่
+  // ไฟล์เดียวจึงใช้ state เดี่ยวได้ ที่นี่ต้องผูกกับ QueueFile แต่ละตัวแทน
+  transactionType: "income" | "expense" | "";
 }
 
 interface SaveSlipResponse {
@@ -112,6 +116,7 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
       error: null,
       result: null,
       editedValues: {},
+      transactionType: "",
     }));
 
     setFiles(newQueue);
@@ -132,6 +137,11 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
       if (!f.result) {
         errors.push(`แท็บ ${idx + 1} (${f.file.name}): ยังอ่าน OCR ไม่เสร็จ`);
         return;
+      }
+      // บังคับเลือกรายรับ/รายจ่ายก่อนบันทึกทุกไฟล์ในคิว (13 ก.ย. 2026) --
+      // เช็คก่อนเข้า loop field อื่นของแท็บนั้น เหมือน pattern ใน Single
+      if (!f.transactionType) {
+        errors.push(`แท็บ ${idx + 1} (${f.file.name}): กรุณาเลือกประเภทรายการ (รายรับ / รายจ่าย)`);
       }
       for (const [key, value] of Object.entries(f.editedValues)) {
         if (value.trim() && NUMERIC_FIELDS.has(key) && Number.isNaN(Number(value))) {
@@ -167,6 +177,7 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
             parsed: finalParsed,
             ocr_text: f.result.ocr_text,
             extraction_flag: editedAny ? "user_edited" : "ai_extract_100",
+            transaction_type: f.transactionType,
           }),
         });
 
@@ -252,15 +263,61 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
                   </div>
                 )}
 
-                <div className="flex gap-6">
+                <div className="flex items-start gap-6">
                   <div className="w-2/5 rounded-xl border border-border-gray bg-card-bg p-4">
                     <p className="mb-2 font-medium text-text-primary">🖼️ รูปต้นฉบับ</p>
                     {/* eslint-disable-next-line @next/next/no-img-element -- blob URL */}
                     <img src={activeFile.previewUrl} alt="สลิปต้นฉบับ" className="w-full rounded-lg" />
                   </div>
 
-                  <div className="w-3/5 rounded-xl border border-border-gray bg-card-bg p-4">
+                  {/* sticky + max-h + overflow-y-auto (13 ก.ย. 2026): แก้จากรอบ
+                      ก่อน -- pattern เดียวกับ SingleUploadFlow (max-h เฉยๆ ไม่
+                      พอเพราะ align-items:stretch เดิมทำให้ความสูงทั้งแถวถูก
+                      กำหนดจากกล่องรูปที่สูงกว่าเสมอ) เปลี่ยน parent เป็น
+                      items-start + กล่องฟอร์ม sticky top-4 ให้ลอยค้างอยู่
+                      ตำแหน่งเดิมของจอ ไม่ขยับตามความยาวของกล่องรูป -- tab bar
+                      ยังอยู่ในกล่องนี้ด้วย จึงอยู่ในพื้นที่ scroll เดียวกัน
+                      ไม่ได้ fix แยกออกไปต่างหาก */}
+                  <div className="w-3/5 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto scrollbar-hover-only rounded-xl border border-border-gray bg-card-bg p-4">
                     <p className="mb-4 font-medium text-text-primary">📝 ตรวจสอบและแก้ไขข้อมูล</p>
+
+                    {/* ประเภทรายการ (13 ก.ย. 2026): วางบนสุดของฟอร์ม แยกจาก
+                        ฟิลด์ที่มาจาก OCR เหมือน pattern ใน SingleUploadFlow --
+                        ผูกกับ activeFile.transactionType เพราะแต่ละไฟล์ใน
+                        คิวเลือกไม่เหมือนกันได้
+
+                        แก้ตาม feedback 13 ก.ย. 2026 (UX polish) -- เหมือน
+                        SingleUploadFlow ทุกประการ: (1) สีแยกจากปุ่ม Save
+                        (เขียว=รายรับ, แดง=รายจ่าย) (2) เพิ่ม spacing
+                        (3) ห่อด้วยกรอบ+พื้นหลังแยกต่างหากให้ดูเป็น widget */}
+                    <div className="mb-6 rounded-lg border border-border-gray bg-page-bg p-3">
+                      <label className="mb-2 block text-sm font-medium text-text-primary">ประเภทรายการ</label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => updateFile(activeFile.id, { transactionType: "income" })}
+                          className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                            activeFile.transactionType === "income"
+                              ? "border-green-600 bg-green-600 text-white"
+                              : "border-border-gray bg-card-bg text-text-primary hover:bg-soft-green-bg"
+                          }`}
+                        >
+                          รายรับ
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateFile(activeFile.id, { transactionType: "expense" })}
+                          className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                            activeFile.transactionType === "expense"
+                              ? "border-red-600 bg-red-600 text-white"
+                              : "border-border-gray bg-card-bg text-text-primary hover:bg-red-50"
+                          }`}
+                        >
+                          รายจ่าย
+                        </button>
+                      </div>
+                    </div>
+
                     {Object.keys(displayFields).map((key) => (
                       <div key={key} className="mb-4">
                         <label className="mb-1 block text-sm text-text-primary">

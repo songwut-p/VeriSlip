@@ -30,6 +30,10 @@ export default function SingleUploadFlow({ file }: { file: File }) {
   const [result, setResult] = useState<UploadSlipResponse | null>(null);
   const [editedValues, setEditedValues] = useState<Record<string, string>>({});
   const [baselineValues, setBaselineValues] = useState<Record<string, string>>({});
+  // transaction_type (13 ก.ย. 2026): "income"/"expense" ที่ผู้ใช้เลือกเอง
+  // ในฟอร์ม human-in-the-loop -- ไม่ใช่ field ที่มาจาก OCR/displayFields
+  // เหมือนฟิลด์อื่น จึงแยก state ต่างหาก ไม่ผ่าน editedValues loop
+  const [transactionType, setTransactionType] = useState<"income" | "expense" | "">("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -71,6 +75,11 @@ export default function SingleUploadFlow({ file }: { file: File }) {
     if (!result) return;
 
     const errors: string[] = [];
+    // บังคับเลือกรายรับ/รายจ่ายก่อนบันทึกเสมอ (13 ก.ย. 2026) -- pattern
+    // เดียวกับฟิลด์อื่นที่ห้ามว่าง เช็คก่อนเข้า loop ตัวเลขด้านล่าง
+    if (!transactionType) {
+      errors.push("กรุณาเลือกประเภทรายการ (รายรับ / รายจ่าย) ก่อนบันทึก");
+    }
     for (const [key, value] of Object.entries(editedValues)) {
       if (value.trim() && NUMERIC_FIELDS.has(key) && Number.isNaN(Number(value))) {
         errors.push(`'${FIELD_LABELS[key] ?? key}' ต้องเป็นตัวเลข (ได้รับ: ${value})`);
@@ -107,6 +116,7 @@ export default function SingleUploadFlow({ file }: { file: File }) {
           parsed: finalParsed,
           ocr_text: result.ocr_text,
           extraction_flag: editedAny ? "user_edited" : "ai_extract_100",
+          transaction_type: transactionType,
         }),
       });
 
@@ -163,15 +173,67 @@ export default function SingleUploadFlow({ file }: { file: File }) {
             </div>
           )}
 
-          <div className="flex gap-6">
+          <div className="flex items-start gap-6">
             <div className="w-2/5 rounded-xl border border-border-gray bg-card-bg p-4">
               <p className="mb-2 font-medium text-text-primary">🖼️ รูปต้นฉบับ</p>
               {/* eslint-disable-next-line @next/next/no-img-element -- blob URL ใช้ next/image ไม่ได้ */}
               <img src={previewUrl} alt="สลิปต้นฉบับ" className="w-full rounded-lg" />
             </div>
 
-            <div className="w-3/5 rounded-xl border border-border-gray bg-card-bg p-4">
+            {/* sticky + max-h + overflow-y-auto (13 ก.ย. 2026): แก้จากรอบก่อน
+                (max-h เฉยๆ ไม่พอ เพราะ flex row เดิม align-items:stretch ทำให้
+                ความสูงทั้งแถวถูกกำหนดจากกล่องรูปที่สูงกว่าเสมอ ต่อให้กล่องฟอร์ม
+                เองไม่ล้นก็ตาม -- หน้าเว็บเลย scroll รวมกันแทนที่จะแยกกล่อง)
+
+                วิธีนี้: เปลี่ยน parent เป็น items-start (กล่องรูปไม่ถูกบังคับยืด
+                ตามกล่องฟอร์มอีกต่อไป) แล้วให้กล่องฟอร์ม sticky top-4 -- ทำให้
+                กล่องฟอร์ม "ลอยค้าง" อยู่ตำแหน่งเดิมของจอเสมอ ไม่ว่ากล่องรูปจะ
+                ยาวแค่ไหน (หน้าเว็บยัง scroll ผ่านรูปได้ปกติ แต่กล่องฟอร์มไม่ขยับ
+                ตาม) พร้อม scrollbar อิสระของตัวเองเมื่อเนื้อหาฟอร์มเกิน
+                max-h ที่กำหนด */}
+            <div className="w-3/5 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto scrollbar-hover-only rounded-xl border border-border-gray bg-card-bg p-4">
               <p className="mb-4 font-medium text-text-primary">📝 ตรวจสอบและแก้ไขข้อมูล</p>
+
+              {/* ประเภทรายการ (13 ก.ย. 2026): วางบนสุดของฟอร์ม แยกจากฟิลด์ที่
+                  มาจาก OCR ให้ชัดเจนว่าเป็นการยืนยันของผู้ใช้เอง ไม่ใช่ค่าที่
+                  AI อ่านได้ -- อยู่บนสุดเพื่อลดโอกาสข้ามไปโดยไม่ตั้งใจก่อนกด
+                  บันทึก (บังคับเลือกจริงใน handleSave ด้านบนอยู่แล้ว)
+
+                  แก้ตาม feedback 13 ก.ย. 2026 (UX polish):
+                  (1) สีแยกจากปุ่ม Save ชัดเจน -- เขียว=รายรับ, แดง=รายจ่าย
+                      (เดิมใช้ emerald เดียวกับปุ่ม Save ทำให้แยกไม่ออกว่า
+                      อันไหนคือ action button อันไหนคือ state toggle)
+                  (2) เพิ่ม spacing (mb-6 แทน mb-4, label เพิ่ม mb-2)
+                  (3) ห่อด้วยกรอบ+พื้นหลังแยกต่างหาก ให้ดูเป็น widget ของ
+                      ตัวเอง ไม่ใช่ฟิลด์ลอยปนกับฟิลด์ OCR ด้านล่าง */}
+              <div className="mb-6 rounded-lg border border-border-gray bg-page-bg p-3">
+                <label className="mb-2 block text-sm font-medium text-text-primary">ประเภทรายการ</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTransactionType("income")}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                      transactionType === "income"
+                        ? "border-green-600 bg-green-600 text-white"
+                        : "border-border-gray bg-card-bg text-text-primary hover:bg-soft-green-bg"
+                    }`}
+                  >
+                    รายรับ
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTransactionType("expense")}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                      transactionType === "expense"
+                        ? "border-red-600 bg-red-600 text-white"
+                        : "border-border-gray bg-card-bg text-text-primary hover:bg-red-50"
+                    }`}
+                  >
+                    รายจ่าย
+                  </button>
+                </div>
+              </div>
+
               {Object.keys(displayFields).map((key) => (
                 <div key={key} className="mb-4">
                   <label className="mb-1 block text-sm text-text-primary">

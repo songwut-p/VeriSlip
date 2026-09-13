@@ -24,9 +24,9 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex flex-1">
+    <div className="flex flex-1 h-full overflow-hidden">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      <main className="flex-1 h-full overflow-y-auto">{children}</main>
     </div>
   );
 }

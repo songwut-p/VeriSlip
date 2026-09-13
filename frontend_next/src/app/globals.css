@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --color-page-bg: #F3F4F6;      /* พื้นหลังหน้าเว็บ เทาอ่อน */
+  --color-page-bg: #E5E7EB;  /* จากเดิม #F3F4F6 เข้มขึ้นอีกระดับ */
   --color-card-bg: #FFFFFF;      /* การ์ด/กล่องต่างๆ ขาว */
   --color-emerald: #0F4C3A;      /* เขียวเข้ม -- ปุ่ม, sidebar, metric card */
   --color-emerald-hover: #0C3D2E;
@@ -9,6 +9,7 @@
   --color-border-green: #D1E7DD;
   --color-border-gray: #E5E7EB;
   --color-text-primary: #111827;
+  --color-text-secondary: #6B7280;   /* เทากลาง -- คำโปรย/ข้อความรอง */
 }
 
 body {
@@ -25,4 +26,28 @@ body {
   --color-border-green: var(--color-border-green);
   --color-border-gray: var(--color-border-gray);
   --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+}
+
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+
+/* ซ่อน scrollbar จนกว่าจะ hover -- ใช้กับกล่องฟอร์ม human-in-the-loop (13 ก.ย. 2026) */
+.scrollbar-hover-only {
+  scrollbar-width: none; /* Firefox: ซ่อนไว้ก่อน */
+}
+.scrollbar-hover-only::-webkit-scrollbar {
+  width: 8px;
+}
+.scrollbar-hover-only::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
+.scrollbar-hover-only:hover {
+  scrollbar-width: thin; /* Firefox: โผล่ตอน hover */
+}
+.scrollbar-hover-only:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
 }
