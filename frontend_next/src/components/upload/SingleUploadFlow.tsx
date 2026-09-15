@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect , useRef} from "react";
 import { apiFetch, ApiRequestError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { FIELD_LABELS, NUMERIC_FIELDS } from "@/lib/constants";
@@ -24,7 +24,7 @@ interface SaveSlipResponse {
 // เดิมคือ UploadPage ทั้งหน้า -- ตอนนี้แยกออกมาเป็น component
 // รับ "ไฟล์ที่เลือกไว้แล้ว" เป็น prop แทนที่จะมี <input> ของตัวเอง
 // เนื้อใน (OCR/แก้ฟอร์ม/บันทึก) ไม่ถูกแก้แม้แต่บรรทัดเดียว
-export default function SingleUploadFlow({ file }: { file: File }) {
+   export default function SingleUploadFlow({ file, onCancel }: { file: File; onCancel: () => void }) {
   const { token } = useAuth();
   const [previewUrl] = useState<string>(() => URL.createObjectURL(file));
   const [result, setResult] = useState<UploadSlipResponse | null>(null);
@@ -42,34 +42,42 @@ export default function SingleUploadFlow({ file }: { file: File }) {
 
   // เดิมทำงานตอน onChange ของ <input> -- ตอนนี้ทำตอน component นี้ mount
   // แทน เพราะพ่อแม่ (หน้ารวม) เลือกไฟล์มาให้ก่อนแล้วถึงสร้าง component นี้
-  useEffect(() => {
-    const runOcr = async () => {
-      setIsLoading(true);
-      const formData = new FormData();
-      formData.append("file", file);
-      try {
-        const data = await apiFetch<UploadSlipResponse>("/upload-slip", {
-          method: "POST",
-          body: formData,
-          token,
-        });
-        setResult(data);
-        const displayFields = prepareDisplayFields(data.parsed);
-        const initial: Record<string, string> = {};
-        for (const [key, value] of Object.entries(displayFields)) {
-          initial[key] = value === null ? "" : String(value);
-        }
-        setEditedValues(initial);
-        setBaselineValues(initial);
-      } catch (err) {
-        setError(err instanceof ApiRequestError ? err.message : "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้");
-      } finally {
-        setIsLoading(false);
+  
+const controllerRef = useRef<AbortController | null>(null);
+
+useEffect(() => {
+  const runOcr = async () => {
+    setIsLoading(true);
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const data = await apiFetch<UploadSlipResponse>("/upload-slip", {
+        method: "POST",
+        body: formData,
+        token,
+        signal: controller.signal,
+      });
+      setResult(data);
+      const displayFields = prepareDisplayFields(data.parsed);
+      const initial: Record<string, string> = {};
+      for (const [key, value] of Object.entries(displayFields)) {
+        initial[key] = value === null ? "" : String(value);
       }
-    };
-    runOcr();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- ตั้งใจรันแค่ครั้งเดียวตอน mount ต่อไฟล์
-  }, []);
+      setEditedValues(initial);
+      setBaselineValues(initial);
+    } catch (err) {
+      // ผู้ใช้กดยกเลิกเอง (abort) -- ไม่ใช่ error จริง ไม่ต้องโชว์กล่องแดง
+      if (err instanceof Error && err.name === "AbortError") return;
+      setError(err instanceof ApiRequestError ? err.message : "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  runOcr();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
 
   const handleSave = async () => {
     if (!result) return;
@@ -142,7 +150,21 @@ export default function SingleUploadFlow({ file }: { file: File }) {
 
   return (
     <div>
-      {isLoading && <p className="text-text-primary">กำลังอ่านไฟล์ด้วย OCR...</p>}
+      {isLoading && (
+        <div className="mb-4 flex items-center gap-3">
+            <p className="text-text-primary">กำลังอ่านไฟล์ด้วย OCR...</p>
+        <button
+            type="button"
+            onClick={() => {
+            controllerRef.current?.abort();
+          onCancel();
+      }}
+          className="rounded-lg border border-border-gray px-3 py-1 text-sm text-text-primary hover:bg-page-bg"
+    >
+          ยกเลิก
+    </button>
+  </div>
+)}
 
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -172,6 +194,14 @@ export default function SingleUploadFlow({ file }: { file: File }) {
               ✅ อ่านไฟล์สำเร็จ — ตรวจพบว่าเป็น: {DOC_TYPE_LABELS[result.doc_type] ?? result.doc_type}
             </div>
           )}
+
+          <button
+              type="button"
+              onClick={onCancel}
+              className="mb-4 rounded-lg border border-border-gray px-3 py-1 text-sm text-text-primary hover:bg-page-bg"
+            >
+              เลือกไฟล์ใหม่
+          </button>
 
           <div className="flex items-start gap-6">
             <div className="w-2/5 rounded-xl border border-border-gray bg-card-bg p-4">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, ChangeEvent } from "react";
+import { useState, useEffect, useRef, ChangeEvent } from "react";
 import SingleUploadFlow from "@/components/upload/SingleUploadFlow";
 import MultiUploadFlow from "@/components/upload/MultiUploadFlow";
 
@@ -10,6 +10,7 @@ export default function UploadPage() {
   // ข้างล่าง mount ใหม่ทั้งหมด (รีเซ็ต state เดิมทิ้ง) แม้จะเลือกไฟล์ชื่อเดิมซ้ำ
   const [uploadKey, setUploadKey] = useState(0);
 
+  const handleCancel = () => setSelectedFiles(null);
   const handleFilesChange = (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
@@ -30,7 +31,7 @@ export default function UploadPage() {
       />
 
       {selectedFiles && selectedFiles.length === 1 && (
-        <SingleUploadFlow key={uploadKey} file={selectedFiles[0]} />
+        <SingleUploadFlow key={uploadKey} file={selectedFiles[0]} onCancel={handleCancel} />
       )}
 
       {selectedFiles && selectedFiles.length > 1 && (
