@@ -8,6 +8,7 @@ import {
   prepareDisplayFields, getIssueFields, findSuspiciousNameFields,
 } from "@/lib/slipFields";
 import type { UploadSlipResponse, ParsedFields } from "@/types/slip";
+import { Loader2 } from "lucide-react";
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   bank_slip: "สลิปโอนเงิน",
@@ -151,17 +152,18 @@ useEffect(() => {
   return (
     <div>
       {isLoading && (
-        <div className="mb-4 flex items-center gap-3">
-            <p className="text-text-primary">กำลังอ่านไฟล์ด้วย OCR...</p>
-        <button
-            type="button"
-            onClick={() => {
-            controllerRef.current?.abort();
-          onCancel();
+  <div className="mb-4 flex items-center gap-3">
+    <Loader2 className="animate-spin text-emerald" size={18} />
+    <p className="text-text-primary">กำลังอ่านไฟล์ด้วย OCR...</p>
+    <button
+      type="button"
+      onClick={() => {
+        controllerRef.current?.abort();
+        onCancel();
       }}
-          className="rounded-lg border border-border-gray px-3 py-1 text-sm text-text-primary hover:bg-page-bg"
+      className="rounded-lg border border-border-gray px-3 py-1 text-sm text-text-primary hover:bg-page-bg"
     >
-          ยกเลิก
+      ยกเลิก
     </button>
   </div>
 )}

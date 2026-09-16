@@ -8,6 +8,7 @@ import {
   prepareDisplayFields, getIssueFields, findSuspiciousNameFields,
 } from "@/lib/slipFields";
 import type { UploadSlipResponse, ParsedFields } from "@/types/slip";
+import { Loader2 } from "lucide-react";
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   bank_slip: "สลิปโอนเงิน",
@@ -231,8 +232,11 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
       {activeFile && (
         <>
           {activeFile.isLoading && (
-            <p className="mb-4 text-text-primary">กำลังอ่านไฟล์ด้วย OCR...</p>
-          )}
+            <div className="mb-4 flex items-center gap-2">
+              <Loader2 className="animate-spin text-emerald" size={18} />
+              <p className="text-text-primary">กำลังอ่านไฟล์ด้วย OCR...</p>
+            </div>
+      )}
 
           {activeFile.error && (
             <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
