@@ -149,7 +149,7 @@ export default function DashboardPage() {
               }}
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
               placeholder="ค้นหาจากชื่อไฟล์ ผู้โอน ผู้รับ หรือธนาคาร"
-              className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              className="flex-1 rounded-lg border border-border-input px-3 py-2 text-sm text-text-primary"
             />
             <button
               onClick={handleSearch}
