@@ -27,7 +27,7 @@ export function RecentSlipsList({
   }
 
   return (
-    <div className="divide-y divide-gray-100 rounded-xl border border-gray-100">
+    <div className="divide-y divide-border-input rounded-xl border border-border-gray">
       {recent.map((slip) => (
         <div
           key={slip.id}
