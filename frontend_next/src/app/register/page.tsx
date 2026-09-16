@@ -62,7 +62,7 @@ export default function RegisterPage() {
 
         <label className="mb-1 block text-sm text-text-primary">ชื่อผู้ใช้</label>
         <input
-          className="mb-4 w-full rounded-lg border border-border-gray px-3 py-2 outline-none focus:border-emerald"
+          className="mb-4 w-full rounded-lg border border-border-input px-3 py-2 outline-none focus:border-emerald"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           required
@@ -72,7 +72,7 @@ export default function RegisterPage() {
         <div className="relative mb-4">
           <input
             type={showPassword ? "text" : "password"}
-            className="w-full rounded-lg border border-border-gray px-3 py-2 pr-10 outline-none focus:border-emerald"
+            className="w-full rounded-lg border border-border-input px-3 py-2 pr-10 outline-none focus:border-emerald"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             minLength={8}
@@ -92,7 +92,7 @@ export default function RegisterPage() {
         <div className="relative mb-8">
           <input
             type={showConfirmPassword ? "text" : "password"}
-            className="w-full rounded-lg border border-border-gray px-3 py-2 pr-10 outline-none focus:border-emerald"
+            className="w-full rounded-lg border border-border-input px-3 py-2 pr-10 outline-none focus:border-emerald"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             minLength={8}

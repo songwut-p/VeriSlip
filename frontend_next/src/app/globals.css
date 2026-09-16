@@ -10,6 +10,16 @@
   --color-border-gray: #E5E7EB;
   --color-text-primary: #111827;
   --color-text-secondary: #6B7280;   /* เทากลาง -- คำโปรย/ข้อความรอง */
+  --color-border-input: #9CA3AF;      /* เข้มขึ้นจาก D1D5DB เดิม เพื่อให้ contrast กับพื้นขาวผ่านเกณฑ์ readable border */
+  --color-warning: #B45309;           /* ข้อความ/ไอคอนเตือน (เข้มพออ่านบนพื้นเหลืองอ่อน) */
+  --color-warning-bg: #FEF3C7;
+  --color-danger: #DC2626;
+  --color-danger-bg: #FEE2E2;
+  --color-success: #16A34A;
+  --color-success-bg: #DCFCE7;
+  --color-disabled-bg: #E5E7EB;
+  --color-disabled-text: #9CA3AF;
+  --color-focus-ring: rgba(15, 76, 58, 0.35); /* ใช้กับ box-shadow ตอน focus */
 }
 
 body {
@@ -27,6 +37,16 @@ body {
   --color-border-gray: var(--color-border-gray);
   --color-text-primary: var(--color-text-primary);
   --color-text-secondary: var(--color-text-secondary);
+  --color-border-input: var(--color-border-input);
+  --color-warning: var(--color-warning);
+  --color-warning-bg: var(--color-warning-bg);
+  --color-danger: var(--color-danger);
+  --color-danger-bg: var(--color-danger-bg);
+  --color-success: var(--color-success);
+  --color-success-bg: var(--color-success-bg);
+  --color-disabled-bg: var(--color-disabled-bg);
+  --color-disabled-text: var(--color-disabled-text);
+  --color-focus-ring: var(--color-focus-ring);
 }
 
 input[type="password"]::-ms-reveal,
