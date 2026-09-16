@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MessageCircleQuestion, X } from "lucide-react";
 import AskPanel from "./AskPanel";
 
@@ -9,6 +9,7 @@ const ANIMATION_MS = 300;
 export default function AskTrigger() {
   const [shouldRender, setShouldRender] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!shouldRender) return;
@@ -20,6 +21,7 @@ export default function AskTrigger() {
     if (isOpen) {
       setIsOpen(false);
       setTimeout(() => setShouldRender(false), ANIMATION_MS);
+      buttonRef.current?.focus();
     } else {
       setShouldRender(true);
     }
@@ -28,6 +30,7 @@ export default function AskTrigger() {
   return (
     <>
       <button
+        ref={buttonRef}
         type="button"
         onClick={handleToggle}
         aria-label={isOpen ? "ปิดกล่องถาม AI" : "เปิดกล่องถาม AI"}

@@ -1,14 +1,55 @@
 "use client";
+
+import { useEffect, useRef } from "react";
 import { X, Send } from "lucide-react";
 
 interface AskPanelProps {
-    isOpen: boolean;
-    onClose: () => void;
+  isOpen: boolean;
+  onClose: () => void;
 }
 
+const FOCUSABLE_SELECTOR =
+  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 export default function AskPanel({ isOpen, onClose }: AskPanelProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const focusables = panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+    focusables[0]?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+
+      const els = panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+      if (els.length === 0) return;
+      const first = els[0];
+      const last = els[els.length - 1];
+
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
   return (
     <div
+      ref={panelRef}
       role="dialog"
       aria-modal="true"
       aria-label="กล่องถาม AI"
