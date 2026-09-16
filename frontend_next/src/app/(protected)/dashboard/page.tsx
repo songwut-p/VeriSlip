@@ -136,39 +136,45 @@ export default function DashboardPage() {
             />
           </div>
 
-          <div className="mt-8 flex gap-2">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => {
-                const value = e.target.value;
-                setSearchQuery(value);
-                if (value.trim() === "") {
-                  setSearchResults(null);
-                }
-              }}
-              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              placeholder="ค้นหาจากชื่อไฟล์ ผู้โอน ผู้รับ หรือธนาคาร"
-              className="flex-1 rounded-lg border border-border-input px-3 py-2 text-sm text-text-primary"
-            />
-            <button
-              onClick={handleSearch}
-              disabled={isSearching}
-              className="rounded-lg bg-emerald-800 px-4 py-2 text-sm text-white"
-            >
-              {isSearching ? "กำลังค้นหา..." : "ค้นหา"}
-            </button>
-          </div>
+          {/* การ์ดใหญ่ (16 ก.ย. 2026): ห่อ search + รายการล่าสุด ให้เป็น
+              การ์ดเดียวกัน แทนที่จะเป็น 2 บล็อกลอยแยกกัน -- ตาม reference
+              design ที่ดู ระยะห่างจัดที่การ์ดนี้แล้ว บล็อกข้างในเลยลด
+              mt-8/mt-4 เดิมออก เหลือแค่ mt-4 ระหว่าง search กับ list */}
+          <div className="mt-8 rounded-xl border border-border-gray bg-card-bg p-6">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setSearchQuery(value);
+                  if (value.trim() === "") {
+                    setSearchResults(null);
+                  }
+                }}
+                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                placeholder="ค้นหาจากชื่อไฟล์ ผู้โอน ผู้รับ หรือธนาคาร"
+                className="flex-1 rounded-lg border border-border-input px-3 py-2 text-sm text-text-primary"
+              />
+              <button
+                onClick={handleSearch}
+                disabled={isSearching}
+                className="rounded-lg bg-emerald-800 px-4 py-2 text-sm text-white"
+              >
+                {isSearching ? "กำลังค้นหา..." : "ค้นหา"}
+              </button>
+            </div>
 
-          <div className="mt-4">
-            <h2 className="mb-4 text-lg font-medium text-text-primary">
-              {searchResults ? "ผลการค้นหา" : "รายการล่าสุด"}
-            </h2>
-            <RecentSlipsList
-              slips={searchResults ?? data.recent_slips}
-              onDelete={handleDelete}
-              onDownload={handleDownload}
-            />
+            <div className="mt-4">
+              <h2 className="mb-4 text-lg font-medium text-text-primary">
+                {searchResults ? "ผลการค้นหา" : "รายการล่าสุด"}
+              </h2>
+              <RecentSlipsList
+                slips={searchResults ?? data.recent_slips}
+                onDelete={handleDelete}
+                onDownload={handleDownload}
+              />
+            </div>
           </div>
         </>
       )}
