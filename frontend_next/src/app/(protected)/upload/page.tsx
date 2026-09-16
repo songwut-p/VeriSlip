@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef, ChangeEvent } from "react";
+import { useState, ChangeEvent } from "react";
+import { UploadCloud } from "lucide-react";
 import SingleUploadFlow from "@/components/upload/SingleUploadFlow";
 import MultiUploadFlow from "@/components/upload/MultiUploadFlow";
 
@@ -22,13 +23,43 @@ export default function UploadPage() {
     <div className="min-h-screen bg-page-bg p-8">
       <h1 className="mb-6 text-xl font-semibold text-text-primary">อัปโหลดสลิป</h1>
 
-      <input
-        type="file"
-        accept="image/*"
-        multiple
-        onChange={handleFilesChange}
-        className="mb-6"
-      />
+      {!selectedFiles && (
+        <label
+          htmlFor="slip-upload-input"
+          className="mb-6 flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border-input bg-card-bg px-6 py-16 text-center transition-colors hover:border-emerald hover:bg-soft-green-bg"
+        >
+          <UploadCloud className="mb-3 text-text-secondary" size={40} />
+          <p className="text-sm font-medium text-text-primary">คลิกเพื่อเลือกไฟล์สลิป</p>
+          <p className="mt-1 text-sm text-text-secondary">
+            รองรับไฟล์รูปภาพ (JPG, PNG) เลือกได้หลายไฟล์พร้อมกัน
+          </p>
+          <input
+            id="slip-upload-input"
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={handleFilesChange}
+            className="hidden"
+          />
+        </label>
+      )}
+
+      {selectedFiles && (
+        <div className="mb-6 flex items-center justify-between rounded-lg border border-border-input bg-card-bg px-4 py-3">
+          <p className="text-sm text-text-primary">เลือกไว้ {selectedFiles.length} ไฟล์</p>
+          <label htmlFor="slip-upload-input" className="cursor-pointer text-sm text-emerald hover:underline">
+            เปลี่ยนไฟล์
+            <input
+              id="slip-upload-input"
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleFilesChange}
+              className="hidden"
+            />
+          </label>
+        </div>
+      )}
 
       {selectedFiles && selectedFiles.length === 1 && (
         <SingleUploadFlow key={uploadKey} file={selectedFiles[0]} onCancel={handleCancel} />
