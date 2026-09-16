@@ -8,6 +8,7 @@ import { MonthlyCountChart } from "@/components/dashboard/MonthlyCountChart";
 import { RecentSlipsList } from "@/components/dashboard/RecentSlipsList";
 import { SummaryCards } from "@/components/dashboard/SummaryCards";
 import DateRangeFilter, { type DateRange } from "@/components/dashboard/DateRangeFilter";
+import AskTrigger from "@/components/ask/AskTrigger";
 
 export default function DashboardPage() {
   const { token } = useAuth();
@@ -178,6 +179,7 @@ export default function DashboardPage() {
           </div>
         </>
       )}
+      <AskTrigger />
     </div>
   );
 }
