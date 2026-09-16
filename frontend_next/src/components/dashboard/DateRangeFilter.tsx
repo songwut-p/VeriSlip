@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { Calendar } from "lucide-react";
 
 export interface DateRange {
   start_date?: string; // ISO 'YYYY-MM-DD'
@@ -27,6 +28,15 @@ function presetToRange(months: number | null): DateRange {
   return { start_date: toIsoDate(start), end_date: toIsoDate(end) };
 }
 
+// formatThaiDate (16 ก.ย. 2026): แปลง ISO 'YYYY-MM-DD' ที่ <input type="date">
+// เก็บภายใน ให้เป็น dd/mm/yyyy สำหรับโชว์ผู้ใช้เท่านั้น -- ตัว input จริง
+// ยังเป็น native date picker เหมือนเดิมทุกอย่าง (แค่ซ่อนไว้ไม่ให้เห็น)
+function formatThaiDate(iso: string): string {
+  if (!iso) return "ว/ด/ป";
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+
 interface DateRangeFilterProps {
   onChange: (range: DateRange) => void;
 }
@@ -40,46 +50,41 @@ export default function DateRangeFilter({ onChange }: DateRangeFilterProps) {
   const [activePreset, setActivePreset] = useState<string | null>(null);
   const [manualStart, setManualStart] = useState("");
   const [manualEnd, setManualEnd] = useState("");
-  // endDateRef (13 ก.ย. 2026): ใช้ .focus() เด้งไปช่อง "ถึง" อัตโนมัติทันที
-  // หลังเลือกวันเริ่มเสร็จ ตามที่ขอ -- ไม่แตะช่อง "เริ่ม" (ไม่ต้อง ref)
-  // เพราะ auto-focus ต้องการแค่ทิศทางเดียว (เริ่ม -> สิ้นสุด)
+  const startDateRef = useRef<HTMLInputElement>(null);
   const endDateRef = useRef<HTMLInputElement>(null);
+
+  // openPicker (16 ก.ย. 2026): ดึง logic showPicker()+fallback ที่เดิมอยู่
+  // ในตัว handleManualChange โดยตรง ออกมาเป็นฟังก์ชันแยก เพราะตอนนี้ต้อง
+  // เรียกจาก 2 จุด (ปุ่มโชว์วันที่ทั้งสองช่อง) ไม่ใช่แค่ auto-open ช่อง
+  // "ถึง" แบบเดิม -- logic ข้างในเหมือนเดิมทุกอย่าง ไม่ได้เปลี่ยนพฤติกรรม
+  const openPicker = (ref: React.RefObject<HTMLInputElement | null>) => {
+    const input = ref.current as (HTMLInputElement & { showPicker?: () => void }) | null;
+    if (!input) return;
+    input.focus();
+    if (typeof input.showPicker === "function") {
+      try {
+        input.showPicker();
+      } catch {
+        // เบราว์เซอร์บางตัวปฏิเสธถ้าไม่นับว่าเป็น user-gesture โดยตรง --
+        // ปล่อยผ่านเงียบๆ อย่างน้อย .focus() ด้านบนก็ยังทำงานอยู่
+      }
+    }
+  };
 
   const handlePresetClick = (label: string, months: number | null) => {
     setActivePreset(label);
-    // preset ชนะ -- ล้าง manual ที่เคยกรอกไว้ทิ้ง (ถ้ามี)
     setManualStart("");
     setManualEnd("");
     onChange(presetToRange(months));
   };
 
   const handleManualChange = (field: "start" | "end", value: string) => {
-    // manual ชนะ -- ยกเลิก preset ที่เลือกค้างไว้ (ถ้ามี) ทันทีที่กรอกช่องไหนก็ตาม
     setActivePreset(null);
     const nextStart = field === "start" ? value : manualStart;
     const nextEnd = field === "end" ? value : manualEnd;
     if (field === "start") {
       setManualStart(value);
-      // เด้งเปิด calendar popup ของช่อง "ถึง" อัตโนมัติทันทีที่เลือกวันเริ่ม
-      // เสร็จ (ตามที่ขอ 13 ก.ย. 2026) -- showPicker() เปิด popup ตรงๆ เลย
-      // ต่างจาก .focus() ที่แค่ขึ้น cursor ไม่เด้ง popup ให้ ต้องเรียกแบบมี
-      // fallback (feature detect) เพราะ Firefox บางเวอร์ชันยังไม่รองรับ
-      // API นี้ -- ห่อ try/catch เพิ่มเผื่อ browser ปฏิเสธเพราะไม่นับว่าเป็น
-      // user-gesture โดยตรง (ยังคง .focus() ไว้เป็น fallback ที่ทำงานได้เสมอ)
-      const endInput = endDateRef.current as
-        | (HTMLInputElement & { showPicker?: () => void })
-        | null;
-      if (endInput && value) {
-        endInput.focus();
-        if (typeof endInput.showPicker === "function") {
-          try {
-            endInput.showPicker();
-          } catch {
-            // เบราว์เซอร์บางตัวปฏิเสธถ้าไม่นับว่าเป็น user-gesture โดยตรง --
-            // ปล่อยผ่านเงียบๆ อย่างน้อย .focus() ด้านบนก็ยังทำงานอยู่
-          }
-        }
-      }
+      if (value) openPicker(endDateRef);
     } else {
       setManualEnd(value);
     }
@@ -90,10 +95,6 @@ export default function DateRangeFilter({ onChange }: DateRangeFilterProps) {
   };
 
   return (
-    // ห่อด้วยกรอบ+พื้นหลัง+label (13 ก.ย. 2026, ตาม feedback) -- เดิมเป็นแค่
-    // ปุ่ม+input ลอยอยู่กลางหน้า ไม่มี label กำกับ กลืนกับพื้นหลังหน้าเว็บ
-    // ทำให้ดูไม่เด่น ใช้ pattern เดียวกับกล่อง "ประเภทรายการ" ในฟอร์ม
-    // human-in-the-loop (กรอบ+พื้นหลัง+label ด้านบน)
     <div className="mb-8 rounded-lg border border-border-gray bg-card-bg p-4">
       <label className="mb-3 block text-sm font-medium text-text-primary">ช่วงเวลา</label>
       <div className="flex flex-wrap items-center gap-3">
@@ -117,20 +118,49 @@ export default function DateRangeFilter({ onChange }: DateRangeFilterProps) {
         <span className="h-6 w-px bg-border-gray" />
 
         <div className="flex items-center gap-2 rounded-lg border border-border-gray bg-page-bg px-3 py-1.5">
-          <input
-            type="date"
-            value={manualStart}
-            onChange={(e) => handleManualChange("start", e.target.value)}
-            className="text-sm text-text-primary"
-          />
+          {/* จุดนี้ (16 ก.ย. 2026): input date จริงซ่อนไว้ (absolute + opacity-0)
+              แต่ยังเป็น native date picker ทำงานปกติทุกอย่าง -- ปุ่มที่เห็น
+              (โชว์ dd/mm/yyyy) เป็นแค่ trigger เรียก showPicker() ของมัน
+              ไม่ต้องลง library เพิ่ม ยังใช้ปฏิทิน native เดิม */}
+          <div className="relative">
+            <input
+              ref={startDateRef}
+              type="date"
+              value={manualStart}
+              onChange={(e) => handleManualChange("start", e.target.value)}
+              className="absolute inset-0 opacity-0 pointer-events-none"
+              tabIndex={-1}
+            />
+            <button
+              type="button"
+              onClick={() => openPicker(startDateRef)}
+              className="flex items-center gap-1.5 text-sm text-text-primary"
+            >
+              <Calendar size={14} className="text-text-secondary" />
+              {formatThaiDate(manualStart)}
+            </button>
+          </div>
+
           <span className="text-sm text-text-secondary">ถึง</span>
-          <input
-            ref={endDateRef}
-            type="date"
-            value={manualEnd}
-            onChange={(e) => handleManualChange("end", e.target.value)}
-            className="text-sm text-text-primary"
-          />
+
+          <div className="relative">
+            <input
+              ref={endDateRef}
+              type="date"
+              value={manualEnd}
+              onChange={(e) => handleManualChange("end", e.target.value)}
+              className="absolute inset-0 opacity-0"
+              tabIndex={-1}
+            />
+            <button
+              type="button"
+              onClick={() => openPicker(endDateRef)}
+              className="flex items-center gap-1.5 text-sm text-text-primary"
+            >
+              <Calendar size={14} className="text-text-secondary" />
+              {formatThaiDate(manualEnd)}
+            </button>
+          </div>
         </div>
       </div>
     </div>
