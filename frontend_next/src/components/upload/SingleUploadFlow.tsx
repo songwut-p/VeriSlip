@@ -245,7 +245,7 @@ useEffect(() => {
                     className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
                       transactionType === "income"
                         ? "border-green-600 bg-green-600 text-white"
-                        : "border-border-gray bg-card-bg text-text-primary hover:bg-soft-green-bg"
+                        : "border-border-input bg-card-bg text-text-primary hover:bg-soft-green-bg"
                     }`}
                   >
                     รายรับ
@@ -256,7 +256,7 @@ useEffect(() => {
                     className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
                       transactionType === "expense"
                         ? "border-red-600 bg-red-600 text-white"
-                        : "border-border-gray bg-card-bg text-text-primary hover:bg-red-50"
+                        : "border-border-input bg-card-bg text-text-primary hover:bg-red-50"
                     }`}
                   >
                     รายจ่าย

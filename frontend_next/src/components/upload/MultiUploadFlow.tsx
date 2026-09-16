@@ -299,7 +299,7 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
                           className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
                             activeFile.transactionType === "income"
                               ? "border-green-600 bg-green-600 text-white"
-                              : "border-border-gray bg-card-bg text-text-primary hover:bg-soft-green-bg"
+                              : "border-border-input bg-card-bg text-text-primary hover:bg-soft-green-bg"
                           }`}
                         >
                           รายรับ
@@ -310,7 +310,7 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
                           className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
                             activeFile.transactionType === "expense"
                               ? "border-red-600 bg-red-600 text-white"
-                              : "border-border-gray bg-card-bg text-text-primary hover:bg-red-50"
+                              : "border-border-input bg-card-bg text-text-primary hover:bg-red-50"
                           }`}
                         >
                           รายจ่าย
