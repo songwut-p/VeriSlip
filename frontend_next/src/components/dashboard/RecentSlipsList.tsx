@@ -31,7 +31,10 @@ export function RecentSlipsList({
       {recent.map((slip) => (
         <div
           key={slip.id}
-          className="flex items-center justify-between px-4 py-3"
+          // group (16 ก.ย. 2026): เปิดใช้ hover/focus reveal ของปุ่ม action --
+          // border-l-4 border-transparent ไว้ล่วงหน้าเสมอ (ไม่ใช่แค่ตอน hover)
+          // กัน layout shift ตอนเส้นซ้ายโผล่ขึ้นมา (ความกว้างคงที่ แค่เปลี่ยนสี)
+          className="group flex items-center justify-between border-l-4 border-transparent px-4 py-3 transition-colors hover:border-emerald hover:bg-soft-green-bg focus-within:border-emerald focus-within:bg-soft-green-bg"
         >
           <div>
             <p className="text-sm font-medium text-text-primary">
@@ -51,26 +54,32 @@ export function RecentSlipsList({
                 <span className="mt-1 inline-block rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-600">
                   ควรตรวจสอบ
                 </span>
-                ) : (
+              ) : (
                 <span className="mt-1 inline-block rounded-full bg-soft-green-bg px-2 py-0.5 text-xs font-medium text-emerald">
                   สมบูรณ์
                 </span>
               )}
             </div>
 
-            <button
-              onClick={() => onDownload(slip.id, slip.filename)}
-              className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-text-primary hover:bg-gray-50"
-            >
-              ดาวน์โหลด
-            </button>
+            {/* ปุ่ม action (16 ก.ย. 2026): ซ่อนด้วย opacity-0 ปกติ โผล่ตอน
+                hover ทั้งแถว (group-hover) หรือตอน focus อยู่ในแถวนั้นผ่าน
+                keyboard (group-focus-within) -- ปุ่มยังอยู่ใน DOM เสมอ
+                (แค่โปร่งใส) ไม่ใช่ display:none เพื่อให้ Tab ไล่ถึงได้ */}
+            <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+              <button
+                onClick={() => onDownload(slip.id, slip.filename)}
+                className="rounded-lg border border-border-input px-3 py-1.5 text-xs text-text-primary hover:bg-page-bg"
+              >
+                ดาวน์โหลด
+              </button>
 
-            <button
-              onClick={() => onDelete(slip.id)}
-              className="rounded-lg border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
-            >
-              ลบ
-            </button>
+              <button
+                onClick={() => onDelete(slip.id)}
+                className="rounded-lg border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
+              >
+                ลบ
+              </button>
+            </div>
           </div>
         </div>
       ))}
