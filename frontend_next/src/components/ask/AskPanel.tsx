@@ -1,11 +1,67 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, Send } from "lucide-react";
+import { apiFetch, ApiRequestError } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface AskPanelProps {
   isOpen: boolean;
   onClose: () => void;
+}
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  text: string;
+}
+
+// shape ของ /ask response แต่ละ mode (ดู rag/query_router.py) -- ยังไม่มี
+// response formatter ฝั่ง backend เลยต้องแปลงเป็นข้อความอ่านง่ายฝั่งนี้เอง
+// ชั่วคราวก่อน (16 ก.ย. 2026) พรุ่งนี้ค่อยดูแนวทางที่ดีกว่านี้
+interface AskResult {
+  mode: string;
+  sql?: string;
+  rows?: Record<string, unknown>[];
+  matches?: { filename: string; document: string; distance: number }[];
+  message?: string;
+  reason?: string;
+  error?: string;
+  closest_distance?: number | null;
+}
+
+function formatAskResult(result: AskResult): string {
+  switch (result.mode) {
+    case "pattern":
+    case "llm_sql": {
+      const rows = result.rows ?? [];
+      if (rows.length === 0) return "ไม่พบข้อมูลที่ตรงกับคำถามนี้";
+      if (rows.length === 1) {
+        // แถวเดียว -- แปลงเป็น "key: value, key: value" สั้นๆ
+        const entries = Object.entries(rows[0])
+          .filter(([, v]) => v !== null)
+          .map(([k, v]) => `${k}: ${v}`);
+        return entries.join(", ") || "ไม่พบข้อมูลที่ตรงกับคำถามนี้";
+      }
+      // หลายแถว -- โชว์สูงสุด 5 แถวแรก กันข้อความยาวเกินไป
+      const shown = rows.slice(0, 5).map((r) => JSON.stringify(r)).join("\n");
+      const more = rows.length > 5 ? `\n(และอีก ${rows.length - 5} รายการ)` : "";
+      return `${shown}${more}`;
+    }
+    case "semantic": {
+      const matches = result.matches ?? [];
+      if (matches.length === 0) return "ไม่พบสลิปที่ตรงกับคำถามนี้";
+      return matches.map((m) => `${m.filename}: ${m.document}`).join("\n");
+    }
+    case "no_confident_match":
+    case "no_match":
+      return result.message ?? "ไม่พบข้อมูลที่เกี่ยวข้อง";
+    case "rejected":
+      return `ขอโทษครับ ยังตอบคำถามนี้ไม่ได้ (${result.reason ?? "SQL ไม่ผ่านการตรวจสอบ"})`;
+    case "sql_error":
+      return `เกิดข้อผิดพลาดตอนค้นหาข้อมูล (${result.error ?? "unknown error"})`;
+    default:
+      return "ไม่สามารถประมวลผลคำตอบได้";
+  }
 }
 
 const FOCUSABLE_SELECTOR =
@@ -13,6 +69,36 @@ const FOCUSABLE_SELECTOR =
 
 export default function AskPanel({ isOpen, onClose }: AskPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const { token } = useAuth();
+
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { role: "assistant", text: "สวัสดีครับ ถามเกี่ยวกับสลิปหรือยอดเงินได้เลย" },
+  ]);
+  const [input, setInput] = useState("");
+  const [isSending, setIsSending] = useState(false);
+
+  const handleSend = async (question: string) => {
+    const q = question.trim();
+    if (!q || isSending) return;
+
+    setMessages((prev) => [...prev, { role: "user", text: q }]);
+    setInput("");
+    setIsSending(true);
+
+    try {
+      const result = await apiFetch<AskResult>("/ask", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ question: q }),
+      });
+      setMessages((prev) => [...prev, { role: "assistant", text: formatAskResult(result) }]);
+    } catch (e) {
+      const msg = e instanceof ApiRequestError ? e.message : "เกิดข้อผิดพลาด กรุณาลองใหม่";
+      setMessages((prev) => [...prev, { role: "assistant", text: msg }]);
+    } finally {
+      setIsSending(false);
+    }
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -73,40 +159,65 @@ export default function AskPanel({ isOpen, onClose }: AskPanelProps) {
 
       {/* Messages */}
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
-        <div className="self-start max-w-[85%] rounded-xl rounded-bl-sm bg-gray-100 px-3 py-2">
-          <p className="text-sm leading-relaxed">
-            สวัสดีครับ ถามเกี่ยวกับสลิปหรือยอดเงินได้เลย
-          </p>
-        </div>
+        {messages.map((m, i) => (
+          <div
+            key={i}
+            className={`max-w-[85%] whitespace-pre-wrap rounded-xl px-3 py-2 text-sm leading-relaxed ${
+              m.role === "user"
+                ? "self-end rounded-br-sm bg-emerald-600 text-white"
+                : "self-start rounded-bl-sm bg-gray-100"
+            }`}
+          >
+            {m.text}
+          </div>
+        ))}
 
-        <div className="flex flex-wrap gap-1.5 self-start max-w-[90%]">
-          <button
-            type="button"
-            className="whitespace-nowrap rounded-full border border-gray-300 px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
-          >
-            ยอดใช้จ่ายเดือนนี้เท่าไหร่
-          </button>
-          <button
-            type="button"
-            className="whitespace-nowrap rounded-full border border-gray-300 px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
-          >
-            สลิปล่าสุดกี่ใบ
-          </button>
-        </div>
+        {isSending && (
+          <div className="self-start max-w-[85%] rounded-xl rounded-bl-sm bg-gray-100 px-3 py-2">
+            <p className="text-sm leading-relaxed text-gray-500">กำลังค้นข้อมูล...</p>
+          </div>
+        )}
+
+        {messages.length === 1 && (
+          <div className="flex flex-wrap gap-1.5 self-start max-w-[90%]">
+            <button
+              type="button"
+              onClick={() => handleSend("ยอดใช้จ่ายเดือนนี้เท่าไหร่")}
+              className="whitespace-nowrap rounded-full border border-gray-300 px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+            >
+              ยอดใช้จ่ายเดือนนี้เท่าไหร่
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSend("สลิปล่าสุดกี่ใบ")}
+              className="whitespace-nowrap rounded-full border border-gray-300 px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+            >
+              สลิปล่าสุดกี่ใบ
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Input footer */}
       <div className="flex items-center gap-2 border-t border-border-gray px-4 py-3">
         <input
           type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSend(input);
+          }}
           placeholder="พิมพ์คำถาม…"
           aria-label="พิมพ์คำถาม"
-          className="h-9 flex-1 rounded-lg border border-gray-300 bg-gray-50 px-3 text-sm"
+          disabled={isSending}
+          className="h-9 flex-1 rounded-lg border border-gray-300 bg-gray-50 px-3 text-sm disabled:opacity-60"
         />
         <button
           type="button"
+          onClick={() => handleSend(input)}
+          disabled={isSending || !input.trim()}
           aria-label="ส่งคำถาม"
-          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
         >
           <Send size={16} aria-hidden="true" />
         </button>
