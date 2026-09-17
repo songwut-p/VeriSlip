@@ -16,3 +16,4 @@ uploads/
 uploads/
 .env
 audit_log_export.json
+*.bak_*
