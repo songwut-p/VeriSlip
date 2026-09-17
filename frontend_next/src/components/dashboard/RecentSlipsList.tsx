@@ -6,9 +6,12 @@ function formatDate(slip: RecentSlip): string {
   if (!slip.datetime_year || !slip.datetime_month || !slip.datetime_day) {
     return "ไม่ระบุวันที่";
   }
-  const d = String(slip.datetime_day).padStart(2, "0");
-  const m = String(slip.datetime_month).padStart(2, "0");
-  return `${d}/${m}/${slip.datetime_year}`;
+  const date = new Date(slip.datetime_year, slip.datetime_month - 1, slip.datetime_day);
+  return new Intl.DateTimeFormat("th-TH-u-ca-gregory", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
 }
 
 export function RecentSlipsList({
