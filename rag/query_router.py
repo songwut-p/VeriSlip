@@ -31,6 +31,8 @@ import re
 import sqlite3
 from datetime import date
 
+from rag.prompts import SCHEMA_PROMPT
+
 DB_PATH = "db/slips.db"
 
 # ----------------------------------------------------------------------------
@@ -158,6 +160,21 @@ THAI_MONTH_NAMES = {
 
 TOTAL_KEYWORDS = ["รวม", "ทั้งหมด", "ยอด", "เท่าไหร่", "เท่าไร", "เท่าไหร"]
 
+# คำที่บ่งบอกว่าคำถามจริงๆ ต้องการอย่างอื่น (วันที่ / ผู้กระทำ) ไม่ใช่ยอดเงินรวม
+# แม้จะมีคำใน TOTAL_KEYWORDS ปนอยู่ก็ตาม (เช่น "ใคร...เท่าไหร่", "ทั้งหมดมาวันไหน")
+# ป้องกันบั๊กคลาสเดียวกับที่เจอจริง: "ใครเป็นคนโอนบ่อย โอนเท่าไหร่" เคยไป match
+# intent_total_all ผิดเพราะมีคำว่า "เท่าไหร่" ทั้งที่คำถามจริงต้องการ group by ผู้โอน
+DATETIME_QUALIFIER_KEYWORDS = ["เมื่อไหร่", "วันไหน"]
+WHO_QUALIFIER_KEYWORDS = ["ใคร"]
+
+
+def _has_datetime_qualifier(question: str) -> bool:
+    return any(kw in question for kw in DATETIME_QUALIFIER_KEYWORDS)
+
+
+def _has_who_qualifier(question: str) -> bool:
+    return any(kw in question for kw in WHO_QUALIFIER_KEYWORDS)
+
 
 def _resolve_month_year(question: str):
     """หา (year, month) จากคำถาม รองรับ 'เดือนนี้'/'เดือนที่แล้ว'/ชื่อเดือนไทย คืน None ถ้าไม่เจอ"""
@@ -183,6 +200,8 @@ def _resolve_month_year(question: str):
 
 
 def intent_total_by_month(question: str, user_id: str):
+    if _has_datetime_qualifier(question) or _has_who_qualifier(question):
+        return None
     my = _resolve_month_year(question)
     if my is None:
         return None
@@ -225,6 +244,8 @@ def intent_min_transaction(question: str, user_id: str):
 
 
 def intent_count_total(question: str, user_id: str):
+    if _has_datetime_qualifier(question) or _has_who_qualifier(question):
+        return None
     if not any(kw in question for kw in ["กี่รายการ", "กี่ใบ", "จำนวนทั้งหมด"]):
         return None
     sql = "SELECT COUNT(*) AS count FROM slips WHERE doc_type = 'bank_slip' AND user_id = ?"
@@ -233,6 +254,8 @@ def intent_count_total(question: str, user_id: str):
 
 
 def intent_total_all(question: str, user_id: str):
+    if _has_datetime_qualifier(question) or _has_who_qualifier(question):
+        return None
     if _resolve_month_year(question) is not None:
         return None
     if not any(kw in question for kw in TOTAL_KEYWORDS):
@@ -280,29 +303,8 @@ def match_pattern(question: str, user_id: str):
 
 # ----------------------------------------------------------------------------
 # LLM fallback (text-to-SQL) — ใช้เฉพาะตอนไม่ตรง pattern ไหนเลย
+# SCHEMA_PROMPT ย้ายไปอยู่ rag/prompts.py แล้ว (import ไว้ด้านบนของไฟล์นี้)
 # ----------------------------------------------------------------------------
-
-SCHEMA_PROMPT = """คุณคือระบบแปลงคำถามภาษาไทยเป็น SQLite SELECT query
-ตาราง "slips" มีคอลัมน์ดังนี้:
-  filename, bank_name, amount (REAL), currency,
-  sender_name, sender_account, recipient_name, recipient_account,
-  transaction_id, datetime_raw, datetime_year (INT), datetime_month (INT), datetime_day (INT),
-  source_app (K+/Make/Dime/TrueMoney/unknown),
-  doc_type (bank_slip/stock_confirmation) -- ถ้าคำถามพูดถึง "โอนเงิน" ให้กรอง doc_type='bank_slip'
-  เสมอ ถ้าพูดถึง "หุ้น"/"ซื้อขาย" ให้กรอง doc_type='stock_confirmation'
-  symbol -- สัญลักษณ์หุ้น (เช่น MSFT, INTC, BLK) มีค่าเฉพาะแถวที่ doc_type='stock_confirmation'
-  เท่านั้น (เป็น NULL สำหรับ bank_slip) ถ้าคำถามถาม "ซื้อหุ้นอะไรบ้าง"/"หุ้นตัวไหนบ้าง"
-  ให้ SELECT DISTINCT symbol หรือ GROUP BY symbol พร้อมกรอง doc_type='stock_confirmation'
-
-กฎ:
-- ตอบกลับเป็น SQL query เดียวเท่านั้น ห้ามมีคำอธิบายอื่นปน ห้ามใช้ ```
-- อนุญาตเฉพาะ SELECT เท่านั้น ห้ามใช้ INSERT/UPDATE/DELETE/DROP หรือคำสั่งอื่น
-- ใช้ได้เฉพาะตาราง slips เท่านั้น
-- ถ้ามีเงื่อนไข AND กับ OR ปนกันใน WHERE ต้องใส่วงเล็บครอบแต่ละกลุ่มเงื่อนไขให้ชัดเจนเสมอ
-  เช่น WHERE (a AND b) OR (c AND d) ห้ามเขียนแบบไม่มีวงเล็บเด็ดขาด
-
-คำถาม: {question}
-SQL:"""
 
 
 def answer_question(question: str, user_id: str, llm_call_fn=None, semantic_search_fn=None):
