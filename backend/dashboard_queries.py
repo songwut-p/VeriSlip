@@ -1,5 +1,5 @@
 """
-Dashboard query layer for ai-document-assistant.
+Dashboard query layer for VeriSlip.
 
 Verified against the real slips.db schema (19 Aug 2026):
   id, filename, bank_name, amount, currency,
@@ -425,4 +425,3 @@ def get_stock_summary(user_id: str) -> list[dict[str, Any]]:
         entry["total_amount"] += r["amount"] or 0.0
 
     return sorted(by_symbol.values(), key=lambda e: e["total_amount"], reverse=True)
-    

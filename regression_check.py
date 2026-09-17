@@ -11,7 +11,7 @@ OCR รันแค่ครั้งเดียวต่อไฟล์ (ผ�
 parse_slip_text() ทั้งสองเวอร์ชัน เพื่อแยกให้ชัดว่า diff ที่เจอมาจาก "logic
 การ parse ต่างกัน" เท่านั้น ไม่ใช่ความแปรปรวนของ OCR เอง
 
-วิธีรัน (จาก root โปรเจกต์ ~/ai-document-assistant):
+วิธีรัน (จาก root โปรเจกต์ ~/VeriSlip):
     python3 regression_check.py
 """
 

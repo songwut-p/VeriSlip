@@ -5,11 +5,11 @@ export_ocr_texts.py
 ใน test_texts/ สำหรับใช้กับ compare_extraction.py ต่อ
 
 วิธีใช้:
-1. เอาไฟล์นี้ไปวางไว้ที่เดียวกับ parse_slip.py (โฟลเดอร์ ~/ai-document-assistant)
+1. เอาไฟล์นี้ไปวางไว้ที่เดียวกับ parse_slip.py (โฟลเดอร์ ~/VeriSlip)
 2. แก้ list FILES_TO_EXPORT ด้านล่าง ใส่ชื่อไฟล์ (แค่ชื่อไฟล์ ไม่ต้องมี path)
    จากรูปที่อยู่ใน Test_Original/ ที่อยากทดสอบ (เลือกจาก still_missing_after_hybrid
    ใน results_hybrid.json ที่มีอยู่แล้ว)
-3. เปิด terminal ที่ ~/ai-document-assistant แล้ว activate venv ก่อน (ถ้ามี)
+3. เปิด terminal ที่ ~/VeriSlip แล้ว activate venv ก่อน (ถ้ามี)
    เช่น: source venv/bin/activate
 4. รัน: python3 export_ocr_texts.py
 5. จะได้โฟลเดอร์ test_texts/ พร้อมไฟล์ .txt ใช้กับ compare_extraction.py ต่อได้เลย
