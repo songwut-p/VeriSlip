@@ -36,8 +36,8 @@ export function RecentSlipsList({
           // กัน layout shift ตอนเส้นซ้ายโผล่ขึ้นมา (ความกว้างคงที่ แค่เปลี่ยนสี)
           className="group flex items-center justify-between border-l-4 border-transparent px-4 py-3 transition-colors hover:border-emerald hover:bg-soft-green-bg focus-within:border-emerald focus-within:bg-soft-green-bg"
         >
-          <div>
-            <p className="text-sm font-medium text-text-primary">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-text-primary">
               {slip.sender_name ?? "ไม่ระบุผู้โอน"} → {slip.recipient_name ?? "ไม่ระบุผู้รับ"}
             </p>
             <p className="text-xs text-text-secondary">
@@ -51,7 +51,7 @@ export function RecentSlipsList({
                 {slip.amount.toLocaleString("th-TH")} บาท
               </p>
               {slip.has_issue === 1 ? (
-                <span className="mt-1 inline-block rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-600">
+                <span className="mt-1 inline-block rounded-full bg-danger-bg px-2 py-0.5 text-xs font-medium text-danger">
                   ควรตรวจสอบ
                 </span>
               ) : (
@@ -68,14 +68,14 @@ export function RecentSlipsList({
             <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
               <button
                 onClick={() => onDownload(slip.id, slip.filename)}
-                className="rounded-lg border border-border-input px-3 py-1.5 text-xs text-text-primary hover:bg-page-bg"
+                className="rounded-lg border border-border-input px-3 py-1.5 text-xs text-text-primary hover:bg-page-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
               >
                 ดาวน์โหลด
               </button>
 
               <button
                 onClick={() => onDelete(slip.id)}
-                className="rounded-lg border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
+                className="rounded-lg border border-danger/30 px-3 py-1.5 text-xs text-danger hover:bg-danger-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
               >
                 ลบ
               </button>
