@@ -23,6 +23,8 @@ export default function DashboardPage() {
   // และกราฟรายเดือน เพราะทั้งคู่มาจาก endpoint /dashboard/summary เดียวกัน
   const [dateRange, setDateRange] = useState<DateRange>({});
 
+  // คืน promise (18 ก.ย. 2026) เพื่อให้ handleDelete รอ refetch เสร็จได้
+  // -- ConfirmDialog จะได้ปิดพร้อมกับที่รายการอัปเดตแล้ว ไม่ปิดก่อนแล้วแถวค้าง
   function fetchSummary(range: DateRange) {
     if (!token) return;
     setIsLoading(true);
@@ -30,7 +32,7 @@ export default function DashboardPage() {
     if (range.start_date) params.set("start_date", range.start_date);
     if (range.end_date) params.set("end_date", range.end_date);
     const query = params.toString();
-    apiFetch<DashboardSummaryResponse>(
+    return apiFetch<DashboardSummaryResponse>(
       `/dashboard/summary${query ? `?${query}` : ""}`,
       { token }
     )
@@ -61,23 +63,24 @@ export default function DashboardPage() {
       .finally(() => setIsSearching(false));
   }
 
-  function handleDelete(slipId: number) {
+  // เอา window.confirm ออก (18 ก.ย. 2026): การยืนยันย้ายไปอยู่ที่ ConfirmDialog
+  // ใน RecentSlipsList แล้ว ฟังก์ชันนี้จึงลบทันทีที่ถูกเรียก
+  // และเป็น async เพื่อให้ RecentSlipsList รอจนลบ + refetch เสร็จ (isBusy)
+  async function handleDelete(slipId: number) {
     if (!token) return;
-    if (!window.confirm("ยืนยันการลบรายการนี้?")) return;
 
-    apiFetch("/delete-slip", {
-      method: "POST",
-      token,
-      body: JSON.stringify({ slip_id: slipId }),
-    })
-      .then(() => {
-        setSearchResults(null);
-        setSearchQuery("");
-        fetchSummary(dateRange);
-      })
-      .catch((err) => {
-        alert(err instanceof ApiRequestError ? err.message : "ลบไม่สำเร็จ");
+    try {
+      await apiFetch("/delete-slip", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ slip_id: slipId }),
       });
+      setSearchResults(null);
+      setSearchQuery("");
+      await fetchSummary(dateRange);
+    } catch (err) {
+      alert(err instanceof ApiRequestError ? err.message : "ลบไม่สำเร็จ");
+    }
   }
 
   async function handleDownload(slipId: number, filename: string) {

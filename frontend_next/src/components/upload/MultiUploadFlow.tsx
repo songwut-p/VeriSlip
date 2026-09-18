@@ -9,6 +9,7 @@ import {
 } from "@/lib/slipFields";
 import type { UploadSlipResponse, ParsedFields } from "@/types/slip";
 import { Loader2 } from "lucide-react";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   bank_slip: "สลิปโอนเงิน",
@@ -67,16 +68,17 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
   // แยกไว้กันสับสนระหว่าง "ยังโหลดคิวเริ่มต้นไม่เสร็จ" กับ "cancel จนคิวว่างสนิท"
   // -- ไม่งั้นข้อความคิวว่างจะกระพริบโผล่มาแวบนึงตอน mount ก่อน useEffect ทำงาน
   const [initialized, setInitialized] = useState(false);
+  // pendingCancel (18 ก.ย. 2026): ไฟล์ในคิวที่รอยืนยันยกเลิก (null = modal ปิด)
+  // แทน window.confirm เดิม -- เก็บแค่ id กับชื่อ เพราะ modal ต้องใช้แค่นี้
+  const [pendingCancel, setPendingCancel] = useState<{ id: number; name: string } | null>(null);
 
   const updateFile = (id: number, patch: Partial<QueueFile>) => {
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
   };
 
-  const handleCancelFile = (id: number, filename: string) => {
-    const confirmed = window.confirm(
-      `ต้องการยกเลิกไฟล์ "${filename}" ใช่ไหม? ข้อมูลที่อ่าน/แก้ไขไปแล้วจะหายไปทั้งหมด กู้คืนไม่ได้`,
-    );
-    if (!confirmed) return;
+  const handleConfirmCancel = () => {
+    if (!pendingCancel) return;
+    const id = pendingCancel.id;
 
     setFiles((prev) => {
       const remaining = prev.filter((f) => f.id !== id);
@@ -85,6 +87,7 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
       }
       return remaining;
     });
+    setPendingCancel(null);
   };
 
   const runOcr = async (item: QueueFile) => {
@@ -354,7 +357,7 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
                             {f.isLoading && " ⏳"}
                           </button>
                           <button
-                            onClick={() => handleCancelFile(f.id, f.file.name)}
+                            onClick={() => setPendingCancel({ id: f.id, name: f.file.name })}
                             className="w-full rounded-lg border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50"
                           >
                             ×
@@ -396,6 +399,20 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
           </div>
         </>
       )}
+
+      {/* วางนอก activeFile && เพื่อให้ modal ยังอยู่ครบแม้ยกเลิกไฟล์สุดท้ายจนคิวว่าง
+          ปุ่มฝั่งซ้ายใช้ "เก็บไว้" แทน "ยกเลิก" เพราะปุ่มยืนยันคือ "ยกเลิกไฟล์"
+          ถ้าใช้คำว่า "ยกเลิก" ทั้งสองปุ่มจะสับสนว่าอันไหนคืออันไหน */}
+      <ConfirmDialog
+        open={pendingCancel !== null}
+        title="ยกเลิกไฟล์นี้ออกจากคิว?"
+        message="ข้อมูลที่อ่าน/แก้ไขไปแล้วจะหายไปทั้งหมด กู้คืนไม่ได้"
+        itemName={pendingCancel?.name}
+        confirmLabel="ยกเลิกไฟล์"
+        cancelLabel="เก็บไว้"
+        onConfirm={handleConfirmCancel}
+        onCancel={() => setPendingCancel(null)}
+      />
     </div>
   );
 }
