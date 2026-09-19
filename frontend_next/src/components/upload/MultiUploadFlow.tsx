@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { apiFetch, ApiRequestError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { FIELD_LABELS, NUMERIC_FIELDS, NAME_FIELDS } from "@/lib/constants";
-import { prepareDisplayFields, getWarningItems } from "@/lib/slipFields";
+import { prepareDisplayFields, getWarningItems, getCurrentIssueFlags } from "@/lib/slipFields";
 import type { UploadSlipResponse, ParsedFields } from "@/types/slip";
 import { Loader2 } from "lucide-react";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -170,6 +170,9 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
       if (!f.result) continue;
       try {
         const { finalParsed, editedAny } = buildFinalParsed(f.result.parsed, f.editedValues);
+        if (f.result.doc_type === "bank_slip") {
+          Object.assign(finalParsed, getCurrentIssueFlags(f.result.parsed, f.editedValues));
+        }
         const saveResult = await apiFetch<SaveSlipResponse>("/save-slip", {
           method: "POST",
           token,

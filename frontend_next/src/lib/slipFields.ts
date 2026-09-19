@@ -175,3 +175,31 @@ export function getWarningItems(
   return items;
 }
 
+// คีย์ธง (_issue) ของสลิปธนาคาร -> ช่องในฟอร์มที่ธงนั้นพูดถึง
+// (ไม่รวม transaction_id_issue ที่ซ่อนช่องแล้ว)
+const BANK_ISSUE_TO_FIELD: Record<string, string> = {
+  bank_name_issue: "bank_name",
+  amount_issue: "amount",
+  sender_name_issue: "sender_name",
+  sender_account_issue: "sender_account",
+  recipient_name_issue: "recipient_name",
+  recipient_account_issue: "recipient_account",
+  datetime_issue: "datetime_raw",
+};
+
+// ธงที่ควรเก็บลง DB ตอนบันทึก = คำเตือนที่ยังเหลืออยู่ ณ ค่าสุดท้ายของช่อง
+// ช่องที่ไม่มีคำเตือนแล้วได้ null (ล้างธงเก่าจาก OCR) ช่องที่ยังเตือนอยู่ได้ข้อความคำเตือนนั้น
+export function getCurrentIssueFlags(
+  parsed: ParsedFields,
+  values: Record<string, unknown>,
+): Record<string, string | null> {
+  const messageByField = new Map(
+    getWarningItems(parsed, values).map((w) => [w.field, w.message]),
+  );
+  const flags: Record<string, string | null> = {};
+  for (const [issueKey, field] of Object.entries(BANK_ISSUE_TO_FIELD)) {
+    flags[issueKey] = messageByField.get(field) ?? null;
+  }
+  return flags;
+}
+

@@ -4,7 +4,7 @@ import { useState, useEffect , useRef} from "react";
 import { apiFetch, ApiRequestError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { FIELD_LABELS, NUMERIC_FIELDS } from "@/lib/constants";
-import { prepareDisplayFields, getWarningItems } from "@/lib/slipFields";
+import { prepareDisplayFields, getWarningItems, getCurrentIssueFlags } from "@/lib/slipFields";
 import type { UploadSlipResponse, ParsedFields } from "@/types/slip";
 import { Loader2 } from "lucide-react";
 
@@ -109,6 +109,10 @@ useEffect(() => {
       } else {
         finalParsed[key] = value;
       }
+    }
+
+          if (result.doc_type === "bank_slip") {
+      Object.assign(finalParsed, getCurrentIssueFlags(result.parsed, editedValues));
     }
 
     setIsSaving(true);
