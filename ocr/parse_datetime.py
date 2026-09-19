@@ -27,6 +27,11 @@ ENGLISH_MONTH_ABBR = {
 # (พบจากการทดสอบจริง: "ก.ค." ถูกอ่านเป็น "a.m.")
 KNOWN_MISREAD_MONTH_TOKENS = {"a.m.", "p.m.", "am", "pm"}
 
+# วันเวลาที่ไม่มี label (สลิป K+ วางไว้บรรทัดบนสุดโดดๆ) -- ใช้เป็นทางสำรอง
+# หลังจากหา label ไม่เจอ เดือนต้องขึ้นต้นด้วยตัวที่ไม่ใช่ตัวเลข (รวมเดือนที่ OCR อ่านเพี้ยน)
+UNLABELED_DATETIME_PATTERN = re.compile(
+    r"\d{1,2}\s+[^\d\s]\S*\s+\d{2,4}\s*[,\-]?\s*\d{1,2}:\d{2}(?:\s*น\.?)?"
+)
 
 def parse_datetime_raw(text: str):
     """ดึง string ดิบของวันที่-เวลา จาก label ที่รู้จัก
@@ -43,7 +48,11 @@ def parse_datetime_raw(text: str):
     บรรทัดใหม่อยู่แล้ว)"""
     pattern = r"(?:วันที่และเวลา|Date & Time|วันที่ทำรายการ)\s*:?\s*(.+)"
     match = re.search(pattern, text)
-    return match.group(1).strip() if match else None
+    if match:
+        return match.group(1).strip()
+    # ไม่มี label -> ลองหาแพทเทิร์นวันเวลาตรงๆ
+    fallback = UNLABELED_DATETIME_PATTERN.search(text)
+    return fallback.group(0).strip() if fallback else None
 
 
 def parse_datetime_components(raw_str: str) -> dict:
