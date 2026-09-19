@@ -4,9 +4,7 @@ import { useState, useEffect } from "react";
 import { apiFetch, ApiRequestError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { FIELD_LABELS, NUMERIC_FIELDS, NAME_FIELDS } from "@/lib/constants";
-import {
-  prepareDisplayFields, getIssueFields, findSuspiciousNameFields,
-} from "@/lib/slipFields";
+import { prepareDisplayFields, getWarningItems } from "@/lib/slipFields";
 import type { UploadSlipResponse, ParsedFields } from "@/types/slip";
 import { Loader2 } from "lucide-react";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -277,20 +275,27 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
 
           {activeFile.result && (() => {
             const displayFields = prepareDisplayFields(activeFile.result.parsed);
-            const issueFields = getIssueFields(activeFile.result.parsed);
-            const suspiciousNameFields = findSuspiciousNameFields(displayFields);
+             const warnings = getWarningItems(
+              activeFile.result.parsed,
+              activeFile.editedValues,
+            );
             const docTypeLabel =
               DOC_TYPE_LABELS[activeFile.result.doc_type] ?? activeFile.result.doc_type;
 
             return (
               <>
-                {suspiciousNameFields.length > 0 ? (
+                                {warnings.length > 0 ? (
                   <div className="mb-4 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-700">
-                    ⚠️ ตรวจพบข้อความสุ่มเสี่ยง: โปรดตรวจสอบ {suspiciousNameFields.join(" และ ")} (มีตัวเลขนำหน้า)
-                  </div>
-                ) : Object.keys(issueFields).length > 0 ? (
-                  <div className="mb-4 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-700">
-                    ⚠️ ตรวจพบจุดที่ AI อ่านไม่มั่นใจ {Object.keys(issueFields).length} จุด (ตรวจพบว่าเป็น: {docTypeLabel})
+                    <p>
+                      ⚠️ ตรวจพบจุดที่ควรเช็ก {warnings.length} จุด (ตรวจพบว่าเป็น: {docTypeLabel})
+                    </p>
+                    <ul className="mt-1 list-disc pl-5">
+                      {warnings.map((w) => (
+                        <li key={w.field}>
+                          <span className="font-medium">{w.label}:</span> {w.message}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 ) : (
                   <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
