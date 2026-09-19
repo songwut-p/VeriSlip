@@ -234,12 +234,40 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
 
       {activeFile && (
         <>
+          {/* แท็บคิว (19 ก.ย. 2026): ย้ายออกมาจากกล่องฟอร์มที่อยู่ใน
+              activeFile.result -- เดิมแท็บกับปุ่ม × โผล่เฉพาะตอน OCR เสร็จ
+              ทำให้ไฟล์ที่ยังโหลดหรือ OCR พังสลับ/ยกเลิกไม่ได้ ตอนนี้อยู่นอก
+              เงื่อนไข result จึงเห็นและกดได้ตลอดตราบที่ยังมีไฟล์ในคิว */}
+          <div className="mb-4 flex gap-2">
+            {files.map((f, index) => (
+              <div key={f.id} className="flex-1">
+                <button
+                  onClick={() => setActiveId(f.id)}
+                  className={`mb-1 w-full rounded-lg px-3 py-2 text-sm transition-colors ${
+                    f.id === activeId
+                      ? "bg-emerald text-white"
+                      : "border border-border-gray bg-card-bg text-text-primary hover:bg-soft-green-bg"
+                  }`}
+                >
+                  {index + 1}/{files.length}
+                  {f.isLoading && " ⏳"}
+                </button>
+                <button
+                  onClick={() => setPendingCancel({ id: f.id, name: f.file.name })}
+                  className="w-full rounded-lg border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+
           {activeFile.isLoading && (
             <div className="mb-4 flex items-center gap-2">
               <Loader2 className="animate-spin text-emerald" size={18} />
               <p className="text-text-primary">กำลังอ่านไฟล์ด้วย OCR...</p>
             </div>
-      )}
+          )}
 
           {activeFile.error && (
             <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -282,9 +310,8 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
                       พอเพราะ align-items:stretch เดิมทำให้ความสูงทั้งแถวถูก
                       กำหนดจากกล่องรูปที่สูงกว่าเสมอ) เปลี่ยน parent เป็น
                       items-start + กล่องฟอร์ม sticky top-4 ให้ลอยค้างอยู่
-                      ตำแหน่งเดิมของจอ ไม่ขยับตามความยาวของกล่องรูป -- tab bar
-                      ยังอยู่ในกล่องนี้ด้วย จึงอยู่ในพื้นที่ scroll เดียวกัน
-                      ไม่ได้ fix แยกออกไปต่างหาก */}
+                      ตำแหน่งเดิมของจอ ไม่ขยับตามความยาวของกล่องรูป
+                      (แท็บย้ายไปอยู่เหนือสุดของหน้าแล้ว 19 ก.ย. 2026) */}
                   <div className="w-3/5 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto scrollbar-hover-only rounded-xl border border-border-gray bg-card-bg p-4">
                     <p className="mb-4 font-medium text-text-primary">📝 ตรวจสอบและแก้ไขข้อมูล</p>
 
@@ -341,30 +368,6 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
                         />
                       </div>
                     ))}
-
-                    <div className="mt-6 flex gap-2">
-                      {files.map((f, index) => (
-                        <div key={f.id} className="flex-1">
-                          <button
-                            onClick={() => setActiveId(f.id)}
-                            className={`mb-1 w-full rounded-lg px-3 py-2 text-sm transition-colors ${
-                              f.id === activeId
-                                ? "bg-emerald text-white"
-                                : "border border-border-gray bg-card-bg text-text-primary hover:bg-soft-green-bg"
-                            }`}
-                          >
-                            {index + 1}/{files.length}
-                            {f.isLoading && " ⏳"}
-                          </button>
-                          <button
-                            onClick={() => setPendingCancel({ id: f.id, name: f.file.name })}
-                            className="w-full rounded-lg border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                    </div>
                   </div>
                 </div>
               </>
