@@ -107,6 +107,31 @@ const ACCOUNT_FIELDS = ["sender_account", "recipient_account"];
 // อักขระที่ไม่ควรอยู่ในเลขบัญชี (OCR อ่านหลุด เช่น %) -- ไม่รวม + - x * เพราะเลขบัญชี/เบอร์จริงมี
 const BAD_ACCOUNT_CHARS = /[%$#@!^&~|\\<>?=]/;
 
+// เดือนที่ยอมรับ: ไทยย่อครบรูป หรืออังกฤษ 3 ตัวแรก (เดียวกับที่ parser รู้จัก)
+const THAI_MONTHS = new Set([
+  "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+  "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค.",
+]);
+const EN_MONTHS = new Set([
+  "jan", "feb", "mar", "apr", "may", "jun",
+  "jul", "aug", "sep", "oct", "nov", "dec",
+]);
+// รูปแบบ "วัน เดือน ปี เวลา" (ปี 2 หรือ 4 หลัก, คั่นด้วย , หรือ - ได้)
+const DATETIME_PATTERN = /^\s*\d{1,2}\s+(\S+)\s+\d{2,4}\s*[,\-]?\s*\d{1,2}:\d{2}/;
+
+// คืนข้อความเตือนเรื่องวันเวลา หรือ null ถ้าดูปกติ
+export function findDatetimeWarning(raw: string): string | null {
+  const text = raw.trim();
+  if (!text) return "อ่านวันเวลาไม่ได้ ลองกรอกตามสลิปนะ";
+  const m = DATETIME_PATTERN.exec(text);
+  if (!m) return "อ่านวันเวลาได้ไม่ครบ ลองเช็คกับสลิปอีกทีนะ";
+  const month = m[1].replace(/,$/, "");
+  if (THAI_MONTHS.has(month) || EN_MONTHS.has(month.slice(0, 3).toLowerCase())) {
+    return null;
+  }
+  return `อ่านเดือนไม่ชัด (ได้ "${month}") ลองเช็คกับสลิปอีกทีนะ`;
+}
+
 // รวมคำเตือนทุกแหล่งเป็นลิสต์เดียว -- คำนวณจากค่าปัจจุบัน (values) ไม่ใช่ค่า OCR เดิม
 export function getWarningItems(
   parsed: ParsedFields,
@@ -147,17 +172,16 @@ export function getWarningItems(
   // 4) ช่องที่ parser ไม่ได้ตั้งธง แต่ค่าดูผิดปกติ (ช่องโหว่ที่เจอจากสลิป K+ จริง)
   const flaggedNow = new Set(items.map((i) => i.field));
 
-  // วันเวลาว่าง (เฉพาะเอกสารที่มีช่องนี้ในฟอร์ม)
-  if (
-    "datetime_raw" in values &&
-    !String(values.datetime_raw ?? "").trim() &&
-    !flaggedNow.has("datetime_raw")
-  ) {
-    items.push({
-      field: "datetime_raw",
-      label: FIELD_LABELS.datetime_raw ?? "datetime_raw",
-      message: "อ่านวันเวลาไม่ได้ ลองกรอกตามสลิปนะ",
-    });
+    // วันเวลาว่าง / อ่านไม่ครบ / เดือนอ่านไม่ออก (เฉพาะเอกสารที่มีช่องนี้ในฟอร์ม)
+  if ("datetime_raw" in values && !flaggedNow.has("datetime_raw")) {
+    const message = findDatetimeWarning(String(values.datetime_raw ?? ""));
+    if (message) {
+      items.push({
+        field: "datetime_raw",
+        label: FIELD_LABELS.datetime_raw ?? "datetime_raw",
+        message,
+      });
+    }
   }
 
   // เลขบัญชีมีอักขระแปลก
