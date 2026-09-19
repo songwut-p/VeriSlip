@@ -226,7 +226,7 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
 
       {/* คิวว่างสนิท (cancel จนหมดทุกไฟล์) -- เดิมตรงนี้ปล่อยโล่งเปล่าไม่มีอะไรเลย
           บอกทางออกให้ผู้ใช้แทนที่จะเจอหน้าว่างงงๆ */}
-      {initialized && files.length === 0 && (
+      {initialized && files.length === 0 && !batchSummary && (
         <div className="rounded-lg border border-border-gray bg-card-bg px-4 py-6 text-center text-sm text-text-primary">
           ยกเลิกไฟล์ครบทุกไฟล์ในคิวแล้ว กรุณาเลือกไฟล์ใหม่จากด้านบนเพื่อเริ่มอัปโหลดอีกครั้ง
         </div>
