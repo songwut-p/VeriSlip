@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { RecentSlip } from "@/types/dashboard-types";
 import ConfirmDialog from "@/components/ConfirmDialog";
 
@@ -8,7 +8,11 @@ function formatDate(slip: RecentSlip): string {
   if (!slip.datetime_year || !slip.datetime_month || !slip.datetime_day) {
     return "ไม่ระบุวันที่";
   }
-  const date = new Date(slip.datetime_year, slip.datetime_month - 1, slip.datetime_day);
+  const date = new Date(
+    slip.datetime_year,
+    slip.datetime_month - 1,
+    slip.datetime_day,
+  );
   return new Intl.DateTimeFormat("th-TH-u-ca-gregory", {
     day: "2-digit",
     month: "2-digit",
@@ -36,19 +40,46 @@ export function RecentSlipsList({
       await onDelete(pendingDelete.id);
     } finally {
       setIsDeleting(false);
+      shouldRefocus.current = true;
       setPendingDelete(null);
     }
   }
 
   const recent = slips.slice(0, 5);
 
+  const listRef = useRef<HTMLDivElement>(null);
+  // true = dialog เพิ่งปิดหลังพยายามลบ (ไว้แยกออกจากตอนโหลดหน้าครั้งแรก/กดยกเลิก)
+  const shouldRefocus = useRef(false);
+
+  useEffect(() => {
+    if (pendingDelete !== null || !shouldRefocus.current) return;
+    shouldRefocus.current = false;
+    // ถ้าโฟกัสหลุดไป body แปลว่าปุ่มลบเดิมหายไปแล้วจริง (ลบสำเร็จ)
+    // ถ้าลบล้มเหลว ปุ่มเดิมยังอยู่และ ConfirmDialog คืนโฟกัสให้แล้ว จึงไม่ต้องทำอะไร
+    if (document.activeElement === document.body) {
+      listRef.current?.focus();
+    }
+  }, [pendingDelete]);
+
   if (recent.length === 0) {
-    return <p className="text-sm text-text-secondary">ยังไม่มีรายการ</p>;
+    return (
+      <div
+        ref={listRef}
+        tabIndex={-1}
+        className="text-sm text-text-secondary focus:outline-none"
+      >
+        ยังไม่มีรายการ
+      </div>
+    );
   }
 
   return (
     <>
-      <div className="divide-y divide-border-input">
+      <div
+        ref={listRef}
+        tabIndex={-1}
+        className="divide-y divide-border-input focus:outline-none"
+      >
         {recent.map((slip) => (
           <div
             key={slip.id}
@@ -59,10 +90,12 @@ export function RecentSlipsList({
           >
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-text-primary">
-                {slip.sender_name ?? "ไม่ระบุผู้โอน"} → {slip.recipient_name ?? "ไม่ระบุผู้รับ"}
+                {slip.sender_name ?? "ไม่ระบุผู้โอน"} →{" "}
+                {slip.recipient_name ?? "ไม่ระบุผู้รับ"}
               </p>
               <p className="text-xs text-text-secondary">
-                {formatDate(slip)} · {slip.bank_name ?? slip.source_app ?? "ไม่ระบุธนาคาร"}
+                {formatDate(slip)} ·{" "}
+                {slip.bank_name ?? slip.source_app ?? "ไม่ระบุธนาคาร"}
               </p>
             </div>
 
