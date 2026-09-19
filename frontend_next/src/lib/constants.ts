@@ -19,3 +19,7 @@ export const NAME_FIELDS = new Set(["sender_name", "recipient_name"]);
 
 // ฟิลด์ metadata ที่ไม่ใช่ข้อมูลสลิปจริง -- ไม่โชว์ในฟอร์มแก้ไข
 export const INTERNAL_FIELDS = new Set(["datetime_parsed", "extraction_source"]);
+
+// ฟิลด์ที่ยังเก็บลง DB ตามเดิม แต่ไม่โชว์ในฟอร์มและไม่นับเป็นคำเตือน
+// (เลขที่รายการ: OCR อ่านผิดบ่อย และไม่มี logic ไหนพึ่งค่านี้)
+export const HIDDEN_FIELDS = new Set(["transaction_id"]);

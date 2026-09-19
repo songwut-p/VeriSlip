@@ -26,7 +26,6 @@ BANK_SLIP_ISSUE_COLS = [
     "sender_account_issue",
     "recipient_name_issue",
     "recipient_account_issue",
-    "transaction_id_issue",
     "datetime_issue",
 ]
 
@@ -35,7 +34,6 @@ BANK_SLIP_ISSUE_COLS = [
 # these rows -- not a real signal, so they're excluded here)
 STOCK_ISSUE_COLS = [
     "amount_issue",
-    "transaction_id_issue",
     "datetime_issue",
 ]
 

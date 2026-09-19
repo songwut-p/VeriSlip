@@ -1,5 +1,5 @@
 import type { ParsedFields } from "@/types/slip";
-import { INTERNAL_FIELDS, NAME_FIELDS, FIELD_LABELS } from "./constants";
+import { INTERNAL_FIELDS, NAME_FIELDS, FIELD_LABELS, HIDDEN_FIELDS } from "./constants";
 
 // ตัดฟิลด์ภายใน (_issue, INTERNAL_FIELDS, currency) ออกจาก dict ที่จะ
 // เอาไปโชว์เป็นฟอร์มแก้ไข -- เทียบเท่า _prepare_display_fields() เดิม
@@ -9,6 +9,7 @@ export function prepareDisplayFields(parsed: ParsedFields): ParsedFields {
     if (key.endsWith("_issue")) continue;
     if (INTERNAL_FIELDS.has(key)) continue;
     if (key === "currency") continue;
+    if (HIDDEN_FIELDS.has(key)) continue;
     result[key] = value;
   }
   return result;
@@ -19,7 +20,11 @@ export function prepareDisplayFields(parsed: ParsedFields): ParsedFields {
 export function getIssueFields(parsed: ParsedFields): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(parsed)) {
-    if (key.endsWith("_issue") && value) {
+    if (
+      key.endsWith("_issue") &&
+      value &&
+      !HIDDEN_FIELDS.has(key.replace(/_issue$/, ""))
+    ) {
       result[key] = String(value);
     }
   }
