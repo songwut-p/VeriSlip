@@ -19,7 +19,9 @@ from ocr.parse_accounts import NAME_ANCHOR_ACCOUNT_PATTERN, COMPANY_NAME_SIGNATU
 
 # ป้ายกำกับของสลิปพร้อมเพย์ที่ไม่ใช่ชื่อคน -- ถ้าเดินถอยแล้วเจอบรรทัดนี้ ให้ถือว่าหาชื่อไม่เจอ
 # (K+ สลิปพร้อมเพย์: ชื่อจริงถูก OCR เรียงไปอยู่ท้ายข้อความ ไม่ได้อยู่เหนือ "รหัสพร้อมเพย์")
-PAYMENT_LABEL_LINE = re.compile(r"(?:รหัส)?พร้อมเพย์|prompt\s*pay", re.IGNORECASE)
+PAYMENT_LABEL_LINE = re.compile(
+    r"(?:รหัส)?พร้อมเพย์|prompt\s*pay|จาก\s*วอลเล็[ทต]", re.IGNORECASE
+)
 
 
 def _strip_icon_prefix(candidate: str) -> str:
