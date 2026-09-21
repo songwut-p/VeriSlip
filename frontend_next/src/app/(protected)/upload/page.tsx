@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, ChangeEvent } from "react";
+import { useState, ChangeEvent, DragEvent } from "react";
 import { UploadCloud } from "lucide-react";
 import SingleUploadFlow from "@/components/upload/SingleUploadFlow";
 import MultiUploadFlow from "@/components/upload/MultiUploadFlow";
@@ -14,12 +14,37 @@ export default function UploadPage() {
   const [queueCount, setQueueCount] = useState<number | null>(null);
 
   const handleCancel = () => setSelectedFiles(null);
-  const handleFilesChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+    // ไฮไลต์กล่องตอนลากไฟล์มาค้างอยู่ด้านบน
+  const [isDragging, setIsDragging] = useState(false);
+
+  // ทางเข้ากลางของไฟล์ ทั้งจากการกดเลือกและลากวาง
+  const acceptFiles = (files: File[]) => {
     if (files.length === 0) return;
     setSelectedFiles(files);
     setUploadKey((k) => k + 1);
     setQueueCount(null);
+  };
+
+  const handleFilesChange = (e: ChangeEvent<HTMLInputElement>) => {
+    acceptFiles(Array.from(e.target.files ?? []));
+  };
+
+  const handleDragOver = (e: DragEvent<HTMLLabelElement>) => {
+    e.preventDefault(); // ต้องมี ไม่งั้นเบราว์เซอร์ไม่ยอมให้วาง
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: DragEvent<HTMLLabelElement>) => {
+    // ตอนเมาส์ผ่านข้อความ/ไอคอนข้างใน จะยิง dragleave ด้วย ให้ข้ามไป กันไฮไลต์กะพริบ
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: DragEvent<HTMLLabelElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    // การลากวางไม่ผ่าน accept="image/*" ของ input จึงต้องกรองเอง
+    acceptFiles(Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/")));
   };
 
   return (
@@ -27,12 +52,17 @@ export default function UploadPage() {
       <h1 className="mb-6 text-xl font-semibold text-text-primary">อัปโหลดสลิป</h1>
 
       {!selectedFiles && (
-        <label
+                <label
           htmlFor="slip-upload-input"
-          className="mb-6 flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border-input bg-card-bg px-6 py-16 text-center transition-colors hover:border-emerald hover:bg-soft-green-bg"
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`mb-6 flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-16 text-center transition-colors hover:border-emerald hover:bg-soft-green-bg ${
+            isDragging ? "border-emerald bg-soft-green-bg" : "border-border-input bg-card-bg"
+          }`}
         >
           <UploadCloud className="mb-3 text-text-secondary" size={40} />
-          <p className="text-sm font-medium text-text-primary">คลิกเพื่อเลือกไฟล์สลิป</p>
+          <p className="text-sm font-medium text-text-primary">คลิกหรือลากไฟล์สลิปมาวางที่นี่</p>
           <p className="mt-1 text-sm text-text-secondary">
             รองรับไฟล์รูปภาพ (JPG, PNG) เลือกได้หลายไฟล์พร้อมกัน
           </p>
