@@ -17,6 +17,10 @@ import re
 from ocr.bank_tokens import BANK_NAME_TOKENS, _is_bare_bank_name_line
 from ocr.parse_accounts import NAME_ANCHOR_ACCOUNT_PATTERN, COMPANY_NAME_SIGNATURE_PATTERN
 
+# ป้ายกำกับของสลิปพร้อมเพย์ที่ไม่ใช่ชื่อคน -- ถ้าเดินถอยแล้วเจอบรรทัดนี้ ให้ถือว่าหาชื่อไม่เจอ
+# (K+ สลิปพร้อมเพย์: ชื่อจริงถูก OCR เรียงไปอยู่ท้ายข้อความ ไม่ได้อยู่เหนือ "รหัสพร้อมเพย์")
+PAYMENT_LABEL_LINE = re.compile(r"(?:รหัส)?พร้อมเพย์|prompt\s*pay", re.IGNORECASE)
+
 
 def _strip_icon_prefix(candidate: str) -> str:
     """ตัด prefix ขยะ 1-3 ตัวอักษร (มักเป็นไอคอนโลโก้ธนาคาร/แอปที่ OCR อ่านผิด
@@ -81,7 +85,12 @@ def parse_names(text: str):
             line) it is skipped entirely (not merged -- a bank name isn't
             part of the person's name) and the walk continues further back
             for the actual name line -- found 20 Aug 2026 testing a
-            friend's Krungthai slip."""
+            friend's Krungthai slip.
+
+            If the line found is a PromptPay label (e.g. "รหัสพร้อมเพย์")
+            the walk stops and returns None -- it is a field label, not a
+            name (22 Sep 2026: K+ PromptPay slip where OCR moved the real
+            name to the end of the text)."""
             steps = 0
             for j in range(idx - 1, -1, -1):
                 steps += 1
@@ -93,6 +102,8 @@ def parse_names(text: str):
                 candidate = _strip_icon_prefix(candidate)
                 if _is_bare_bank_name_line(candidate):
                     continue
+                if PAYMENT_LABEL_LINE.fullmatch(candidate):
+                    return None
                 if re.fullmatch(r"\(.*\)", candidate):
                     prev_steps = 0
                     for k in range(j - 1, -1, -1):
@@ -129,8 +140,9 @@ def parse_names(text: str):
             fallback above, but anchored on an account-number match's
             character offset instead of a 'ธ.' line index. Also merges
             a trailing parenthetical qualifier line with the usable
-            line before it, and skips a bare bank-name-only line
-            (see _preceding_nonblank docstring for both)."""
+            line before it, skips a bare bank-name-only line, and stops
+            with None at a PromptPay label line
+            (see _preceding_nonblank docstring for all three)."""
             line_idx = text[:char_offset].count("\n")
             steps = 0
             for j in range(line_idx - 1, -1, -1):
@@ -143,6 +155,8 @@ def parse_names(text: str):
                 candidate = _strip_icon_prefix(candidate)
                 if _is_bare_bank_name_line(candidate):
                     continue
+                if PAYMENT_LABEL_LINE.fullmatch(candidate):
+                    return None
                 if re.fullmatch(r"\(.*\)", candidate):
                     prev_steps = 0
                     for k in range(j - 1, -1, -1):
@@ -220,3 +234,4 @@ def detect_short_name_issue(name: str | None) -> str | None:
     if len(last_word) <= SHORT_NAME_TAIL_MAX_LEN:
         return SHORT_NAME_ISSUE_MESSAGE
     return None
+    
