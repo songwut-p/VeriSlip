@@ -9,7 +9,7 @@ import re
 
 from ocr.bank_tokens import BANK_NAME_TOKENS
 from ocr.parse_accounts import NAME_ANCHOR_ACCOUNT_PATTERN
-from ocr.parse_names import parse_names
+from ocr.parse_names import parse_names, PAYMENT_LABEL_LINE
 
 
 def parse_recipient_bank(text: str):
@@ -54,6 +54,9 @@ def parse_recipient_bank(text: str):
         candidate = lines[j].strip()
         if not candidate or len(candidate) < 3:
             continue
+        # พร้อมเพย์ไม่ระบุธนาคารปลายทาง -- เดินถอยต่อจะไปเจอธนาคารของผู้โอนแทน
+        if PAYMENT_LABEL_LINE.fullmatch(candidate):
+            return None
         stripped = re.sub(r"^(?:ธนาคาร|ธ\.)\s*", "", candidate)
         if stripped.lower() in BANK_NAME_TOKENS:
             return stripped
