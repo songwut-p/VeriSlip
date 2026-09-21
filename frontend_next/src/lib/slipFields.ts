@@ -132,6 +132,19 @@ export function findDatetimeWarning(raw: string): string | null {
   return `อ่านเดือนไม่ชัด (ได้ "${month}") ลองเช็คกับสลิปอีกทีนะ`;
 }
 
+// แปลข้อความดิบจาก parser (backend) เป็นภาษาไทยสุภาพก่อนโชว์ผู้ใช้
+// ถ้าเจอรูปแบบที่ยังไม่รู้จัก ให้คืนข้อความเดิม (ไม่ทำให้พัง)
+export function humanizeIssue(raw: string): string {
+  const text = raw.trim();
+  if (text.startsWith("label not found")) {
+    return "อ่านช่องนี้จากสลิปไม่เจอ รบกวนตรวจและกรอกเองอีกครั้งนะ";
+  }
+  if (text.startsWith("deferred")) {
+    return "ยังอ่านช่องนี้อัตโนมัติไม่ได้ รบกวนกรอกเองนะ";
+  }
+  return text;
+}
+
 // รวมคำเตือนทุกแหล่งเป็นลิสต์เดียว -- คำนวณจากค่าปัจจุบัน (values) ไม่ใช่ค่า OCR เดิม
 export function getWarningItems(
   parsed: ParsedFields,
@@ -148,7 +161,11 @@ export function getWarningItems(
     const current = String(values[valueKey] ?? "").trim();
     const original = String(parsed[valueKey] ?? "").trim();
     if (current !== "" && current !== original) continue;
-    items.push({ field: valueKey, label: FIELD_LABELS[valueKey] ?? valueKey, message });
+    items.push({
+      field: valueKey,
+      label: FIELD_LABELS[valueKey] ?? valueKey,
+      message: humanizeIssue(message),
+    });
   }
 
   // 2) ชื่อขึ้นต้นด้วยตัวเลข (สัญญาณ OCR อ่านหลุด)
