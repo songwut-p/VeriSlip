@@ -184,6 +184,22 @@ export function getWarningItems(
     }
   }
 
+    // ชื่อผู้โอน/ผู้รับว่าง (เฉพาะเอกสารที่มีช่องนี้ในฟอร์ม) -- เช่น สลิปพร้อมเพย์ที่ชื่อจริง
+  // ถูก OCR เรียงไปอยู่ท้ายข้อความ ทำให้ parser คืนค่าว่าง
+  for (const field of NAME_FIELDS) {
+    if (
+      field in values &&
+      !String(values[field] ?? "").trim() &&
+      !flaggedNow.has(field)
+    ) {
+      items.push({
+        field,
+        label: FIELD_LABELS[field] ?? field,
+        message: "อ่านชื่อไม่ได้ ลองกรอกตามสลิปนะ",
+      });
+    }
+  }
+
   // เลขบัญชีมีอักขระแปลก
   for (const field of ACCOUNT_FIELDS) {
     const raw = String(values[field] ?? "");
