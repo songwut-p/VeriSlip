@@ -30,7 +30,7 @@ KNOWN_MISREAD_MONTH_TOKENS = {"a.m.", "p.m.", "am", "pm"}
 # วันเวลาที่ไม่มี label (สลิป K+ วางไว้บรรทัดบนสุดโดดๆ) -- ใช้เป็นทางสำรอง
 # หลังจากหา label ไม่เจอ เดือนต้องขึ้นต้นด้วยตัวที่ไม่ใช่ตัวเลข (รวมเดือนที่ OCR อ่านเพี้ยน)
 UNLABELED_DATETIME_PATTERN = re.compile(
-    r"\d{1,2}\s+[^\d\s]\S*\s+\d{2,4}\s*[,\-]?\s*\d{1,2}:\d{2}(?:\s*น\.?)?"
+    r"(?<!\d)\d{1,2}\s*[A-Za-zก-๛]\S*\s+\d{2,4}\s*[,\-]?\s*\d{1,2}:\d{2}(?:\s*น\.?)?"
 )
 
 def parse_datetime_raw(text: str):
