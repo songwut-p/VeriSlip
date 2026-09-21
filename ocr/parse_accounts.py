@@ -87,7 +87,9 @@ def _scan_positional_account_matches(text: str):
 
 def normalize_account_number(acc_str: str) -> str:
     """Normalize case ของ x/X ในเลขบัญชี ให้เป็นตัวเล็กเสมอ (แก้ปัญหา -l eng แปลง x -> X)"""
-    return acc_str.lower()
+        # OCR มักอ่านตัวปิดบัง x เป็น % (พบในสลิป K+ "%%%-%-%9458-%") -- แปลงกลับเป็น x
+    # ปลอดภัยเพราะ % โผล่ได้เฉพาะตำแหน่งตัวปิดบังของ ACCOUNT_NUMBER_PATTERN
+    return acc_str.lower().replace("%", "x")
 
 
 def parse_account_numbers(text: str):
