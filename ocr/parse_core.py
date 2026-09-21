@@ -15,7 +15,7 @@ from ocr.parse_names import parse_names, detect_short_name_issue
 from ocr.parse_accounts import parse_account_numbers
 from ocr.parse_datetime import parse_datetime_raw, parse_datetime_components
 from ocr.parse_transaction import parse_transaction_id
-
+from ocr.parse_paired import parse_english_name_account_pairs
 
 def parse_slip_text(ocr_text: str) -> dict:
     """
@@ -35,6 +35,17 @@ def parse_slip_text(ocr_text: str) -> dict:
     bank_name, bank_name_issue = parse_bank_name(ocr_text)
     sender_name, recipient_name = parse_names(ocr_text)
     accounts = parse_account_numbers(ocr_text)
+
+    # fallback: สลิปที่ไม่มี label (เช่น กรุงศรีชื่ออังกฤษ) ใช้เมื่อวิธีเดิมหาไม่เจอเลย
+    # และเจอคู่ชื่อ+เลขบัญชีครบสองคู่พอดีเท่านั้น
+    if not any(a.get("value") for a in accounts) and not sender_name and not recipient_name:
+        pairs = parse_english_name_account_pairs(ocr_text)
+        if len(pairs) == 2:
+            sender_name, recipient_name = pairs[0][0], pairs[1][0]
+            accounts = [
+                {"value": pairs[0][1], "issue": None},
+                {"value": pairs[1][1], "issue": None},
+            ]
     raw_datetime = parse_datetime_raw(ocr_text)
     datetime_parsed = parse_datetime_components(raw_datetime)
 
