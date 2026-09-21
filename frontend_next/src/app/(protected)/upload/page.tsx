@@ -10,6 +10,8 @@ export default function UploadPage() {
   // เปลี่ยนทุกครั้งที่เลือกไฟล์ใหม่ -- ใช้เป็น key บังคับให้ component
   // ข้างล่าง mount ใหม่ทั้งหมด (รีเซ็ต state เดิมทิ้ง) แม้จะเลือกไฟล์ชื่อเดิมซ้ำ
   const [uploadKey, setUploadKey] = useState(0);
+  // จำนวนไฟล์ที่เหลือในคิวของ MultiUploadFlow (null = ยังไม่มีรายงาน ใช้จำนวนที่เลือกไว้)
+  const [queueCount, setQueueCount] = useState<number | null>(null);
 
   const handleCancel = () => setSelectedFiles(null);
   const handleFilesChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -17,6 +19,7 @@ export default function UploadPage() {
     if (files.length === 0) return;
     setSelectedFiles(files);
     setUploadKey((k) => k + 1);
+    setQueueCount(null);
   };
 
   return (
@@ -46,7 +49,11 @@ export default function UploadPage() {
 
       {selectedFiles && (
         <div className="mb-6 flex items-center justify-between rounded-lg border border-border-input bg-card-bg px-4 py-3">
-          <p className="text-sm text-text-primary">เลือกไว้ {selectedFiles.length} ไฟล์</p>
+                    <p className="text-sm text-text-primary">
+            {(queueCount ?? selectedFiles.length) === 0
+              ? "ไม่มีไฟล์ในคิว"
+              : `เลือกไว้ ${queueCount ?? selectedFiles.length} ไฟล์`}
+          </p>
           <label htmlFor="slip-upload-input" className="cursor-pointer text-sm text-emerald hover:underline">
             เปลี่ยนไฟล์
             <input
@@ -66,7 +73,7 @@ export default function UploadPage() {
       )}
 
       {selectedFiles && selectedFiles.length > 1 && (
-        <MultiUploadFlow key={uploadKey} files={selectedFiles} />
+        <MultiUploadFlow key={uploadKey} files={selectedFiles} onQueueChange={setQueueCount} />
       )}
     </div>
   );

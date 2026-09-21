@@ -55,7 +55,13 @@ function buildFinalParsed(
   return { finalParsed, editedAny };
 }
 
-export default function MultiUploadFlow({ files: initialFiles }: { files: File[] }) {
+export default function MultiUploadFlow({
+  files: initialFiles,
+  onQueueChange,
+}: {
+  files: File[];
+  onQueueChange?: (count: number) => void;
+}) {
   const { token } = useAuth();
   const [files, setFiles] = useState<QueueFile[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
@@ -69,7 +75,11 @@ export default function MultiUploadFlow({ files: initialFiles }: { files: File[]
   // pendingCancel (18 ก.ย. 2026): ไฟล์ในคิวที่รอยืนยันยกเลิก (null = modal ปิด)
   // แทน window.confirm เดิม -- เก็บแค่ id กับชื่อ เพราะ modal ต้องใช้แค่นี้
   const [pendingCancel, setPendingCancel] = useState<{ id: number; name: string } | null>(null);
-
+  // รายงานจำนวนไฟล์ที่เหลือในคิวให้หน้าแม่ (แถบ "เลือกไว้ N ไฟล์") -- รอ initialized
+  // ก่อน ไม่งั้นช่วงที่คิวยังว่างตอน mount จะรายงาน 0 ผิด ๆ
+  useEffect(() => {
+    if (initialized) onQueueChange?.(files.length);
+  }, [initialized, files.length, onQueueChange]);
   const updateFile = (id: number, patch: Partial<QueueFile>) => {
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
   };
