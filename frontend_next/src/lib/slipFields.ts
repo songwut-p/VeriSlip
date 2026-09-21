@@ -117,7 +117,7 @@ const EN_MONTHS = new Set([
   "jul", "aug", "sep", "oct", "nov", "dec",
 ]);
 // รูปแบบ "วัน เดือน ปี เวลา" (ปี 2 หรือ 4 หลัก, คั่นด้วย , หรือ - ได้)
-const DATETIME_PATTERN = /^\s*\d{1,2}\s+(\S+)\s+\d{2,4}\s*[,\-]?\s*\d{1,2}:\d{2}/;
+const DATETIME_PATTERN = /^\s*\d{1,2}\s*([^\d\s]\S*)\s+\d{2,4}\s*[,\-]?\s*\d{1,2}:\d{2}/;
 
 // คืนข้อความเตือนเรื่องวันเวลา หรือ null ถ้าดูปกติ
 export function findDatetimeWarning(raw: string): string | null {
