@@ -36,7 +36,7 @@ def _strip_icon_prefix(candidate: str) -> str:
     (23 Aug 2026) ที่มี label 'จาก'/'ถึง' อยู่แล้ว แต่ไอคอนวงกลมข้างหน้าชื่อยัง
     OCR ปนมาเป็นตัวอักษรขยะบนบรรทัดเดียวกันอยู่ดี -- ย้าย logic มาเป็นฟังก์ชัน
     กลางแล้ว apply ทั้ง 3 tier ให้เหมือนกัน (เดิมเขียนซ้ำ 2 ที่ใน tier 2/3)"""
-    return re.sub(r"^[a-zA-Z&]{1,3}\s+(?=\S)", "", candidate.strip())
+    return re.sub(r"^(?:[a-zA-Z&]{1,3}|\d{1,3})\s+(?=\S)", "", candidate.strip())
 
 
 def parse_names(text: str):
