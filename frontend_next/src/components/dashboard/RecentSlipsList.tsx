@@ -120,9 +120,12 @@ export function RecentSlipsList({
                   keyboard (group-focus-within) -- ปุ่มยังอยู่ใน DOM เสมอ
                   (แค่โปร่งใส) ไม่ใช่ display:none เพื่อให้ Tab ไล่ถึงได้ */}
               <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                {/* hover:bg-card-bg (24 ก.ย. 2026): ปุ่มนี้โผล่เฉพาะตอนแถวเป็น
+                    พื้นเขียวอ่อน (bg-soft-green-bg) เดิม hover:bg-page-bg ทำให้
+                    กลายเป็นเทาทับบนแถวเขียว เปลี่ยนเป็นพื้นการ์ดให้ดูกลมกลืน */}
                 <button
                   onClick={() => onDownload(slip.id, slip.filename)}
-                  className="rounded-lg border border-border-input px-3 py-1.5 text-xs text-text-primary hover:bg-page-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                  className="rounded-lg border border-border-input px-3 py-1.5 text-xs text-text-primary hover:bg-card-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                 >
                   ดาวน์โหลด
                 </button>

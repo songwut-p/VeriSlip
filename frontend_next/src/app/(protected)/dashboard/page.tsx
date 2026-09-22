@@ -28,6 +28,9 @@ export default function DashboardPage() {
   function fetchSummary(range: DateRange) {
     if (!token) return;
     setIsLoading(true);
+    // ล้าง error ทุกครั้งที่เริ่มโหลดใหม่ (24 ก.ย. 2026) -- เดิมไม่มีจุดไหน
+    // set กลับเป็น null เลย กล่องแดงจึงค้างถาวรแม้ backend กลับมาแล้ว
+    setError(null);
     const params = new URLSearchParams();
     if (range.start_date) params.set("start_date", range.start_date);
     if (range.end_date) params.set("end_date", range.end_date);
@@ -117,8 +120,10 @@ export default function DashboardPage() {
           ถูกต้องอยู่แล้ว (แค่ UI ไม่สะท้อนสถานะให้เห็น) */}
       <DateRangeFilter onChange={setDateRange} />
 
+      {/* token danger (24 ก.ย. 2026): แทน red-200/red-50/red-700 ฮาร์ดโค้ด
+          ขอบ danger/30 ตรงกับปุ่ม "ลบ" ใน RecentSlipsList */}
       {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="mb-4 rounded-lg border border-danger/30 bg-danger-bg px-4 py-3 text-sm text-danger">
           {error}
         </div>
       )}
@@ -160,10 +165,13 @@ export default function DashboardPage() {
                 placeholder="ค้นหาจากชื่อไฟล์ ผู้โอน ผู้รับ หรือธนาคาร"
                 className="flex-1 rounded-lg border border-border-input px-3 py-2 text-sm text-text-primary"
               />
+              {/* ปุ่มค้นหา (24 ก.ย. 2026): เดิม bg-emerald-800 เป็นสีจาก palette
+                  ของ Tailwind เอง ไม่ใช่ token --color-emerald ของเรา สีเลย
+                  ไม่ตรงกับปุ่มหลักอื่น และไม่มี hover/focus/disabled เลย */}
               <button
                 onClick={handleSearch}
                 disabled={isSearching}
-                className="rounded-lg bg-emerald-800 px-4 py-2 text-sm text-white"
+                className="rounded-lg bg-emerald px-4 py-2 text-sm text-white hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:bg-disabled-bg disabled:text-disabled-text"
               >
                 {isSearching ? "กำลังค้นหา..." : "ค้นหา"}
               </button>
