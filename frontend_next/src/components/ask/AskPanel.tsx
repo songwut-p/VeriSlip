@@ -162,7 +162,7 @@ export default function AskPanel({ isOpen, onClose }: AskPanelProps) {
         {messages.map((m, i) => (
           <div
             key={i}
-            className={`max-w-[85%] whitespace-pre-wrap rounded-xl px-3 py-2 text-sm leading-relaxed ${
+            className={`max-w-[85%] whitespace-pre-wrap rounded-xl px-3 py-2 text-[19.5px] leading-relaxed ${
               m.role === "user"
                 ? "self-end rounded-br-sm bg-emerald-600 text-white"
                 : "self-start rounded-bl-sm bg-gray-100"
@@ -174,7 +174,7 @@ export default function AskPanel({ isOpen, onClose }: AskPanelProps) {
 
         {isSending && (
           <div className="self-start max-w-[85%] rounded-xl rounded-bl-sm bg-gray-100 px-3 py-2">
-            <p className="text-sm leading-relaxed text-gray-500">กำลังค้นข้อมูล...</p>
+            <p className="text-base leading-relaxed text-gray-500">กำลังค้นข้อมูล...</p>
           </div>
         )}
 
@@ -183,14 +183,14 @@ export default function AskPanel({ isOpen, onClose }: AskPanelProps) {
             <button
               type="button"
               onClick={() => handleSend("ยอดใช้จ่ายเดือนนี้เท่าไหร่")}
-              className="whitespace-nowrap rounded-full border border-gray-300 px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+              className="whitespace-nowrap rounded-full border border-gray-300 px-2.5 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
             >
               ยอดใช้จ่ายเดือนนี้เท่าไหร่
             </button>
             <button
               type="button"
               onClick={() => handleSend("สลิปล่าสุดกี่ใบ")}
-              className="whitespace-nowrap rounded-full border border-gray-300 px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+              className="whitespace-nowrap rounded-full border border-gray-300 px-2.5 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
             >
               สลิปล่าสุดกี่ใบ
             </button>
@@ -210,7 +210,7 @@ export default function AskPanel({ isOpen, onClose }: AskPanelProps) {
           placeholder="พิมพ์คำถาม…"
           aria-label="พิมพ์คำถาม"
           disabled={isSending}
-          className="h-9 flex-1 rounded-lg border border-gray-300 bg-gray-50 px-3 text-sm disabled:opacity-60"
+          className="h-9 flex-1 rounded-lg border border-gray-300 bg-gray-50 px-3 text-base disabled:opacity-60"
         />
         <button
           type="button"
