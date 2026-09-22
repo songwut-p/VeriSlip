@@ -27,10 +27,10 @@ export default function DashboardPage() {
   // -- ConfirmDialog จะได้ปิดพร้อมกับที่รายการอัปเดตแล้ว ไม่ปิดก่อนแล้วแถวค้าง
   function fetchSummary(range: DateRange) {
     if (!token) return;
-    setIsLoading(true);
-    // ล้าง error ทุกครั้งที่เริ่มโหลดใหม่ (24 ก.ย. 2026) -- เดิมไม่มีจุดไหน
-    // set กลับเป็น null เลย กล่องแดงจึงค้างถาวรแม้ backend กลับมาแล้ว
-    setError(null);
+    // ไม่ setState ทันทีตรงนี้ (23 ก.ย. 2026) -- ฟังก์ชันนี้ถูกเรียกใน useEffect
+    // กฎ react-hooks/set-state-in-effect ห้าม setState แบบ synchronous ใน effect
+    // (เดิมมี setIsLoading(true) ซึ่งไม่จำเป็น: isLoading ใช้แค่โชว์ "กำลังโหลด..."
+    // ตอน !data ครั้งแรก และค่าเริ่มต้นเป็น true อยู่แล้ว)
     const params = new URLSearchParams();
     if (range.start_date) params.set("start_date", range.start_date);
     if (range.end_date) params.set("end_date", range.end_date);
@@ -39,7 +39,13 @@ export default function DashboardPage() {
       `/dashboard/summary${query ? `?${query}` : ""}`,
       { token }
     )
-      .then(setData)
+      // ล้าง error ตอนโหลดสำเร็จ (23 ก.ย. 2026) -- เดิมไม่มีจุดไหน set กลับเป็น
+      // null เลย กล่องแดงจึงค้างถาวรแม้ backend กลับมาแล้ว; อยู่ใน callback
+      // หลัง fetch จึงไม่ผิดกฎ set-state-in-effect
+      .then((res) => {
+        setData(res);
+        setError(null);
+      })
       .catch((err) => {
         setError(err instanceof ApiRequestError ? err.message : "โหลดข้อมูลไม่สำเร็จ");
       })
@@ -120,7 +126,7 @@ export default function DashboardPage() {
           ถูกต้องอยู่แล้ว (แค่ UI ไม่สะท้อนสถานะให้เห็น) */}
       <DateRangeFilter onChange={setDateRange} />
 
-      {/* token danger (24 ก.ย. 2026): แทน red-200/red-50/red-700 ฮาร์ดโค้ด
+      {/* token danger (23 ก.ย. 2026): แทน red-200/red-50/red-700 ฮาร์ดโค้ด
           ขอบ danger/30 ตรงกับปุ่ม "ลบ" ใน RecentSlipsList */}
       {error && (
         <div className="mb-4 rounded-lg border border-danger/30 bg-danger-bg px-4 py-3 text-sm text-danger">
@@ -165,7 +171,7 @@ export default function DashboardPage() {
                 placeholder="ค้นหาจากชื่อไฟล์ ผู้โอน ผู้รับ หรือธนาคาร"
                 className="flex-1 rounded-lg border border-border-input px-3 py-2 text-sm text-text-primary"
               />
-              {/* ปุ่มค้นหา (24 ก.ย. 2026): เดิม bg-emerald-800 เป็นสีจาก palette
+              {/* ปุ่มค้นหา (23 ก.ย. 2026): เดิม bg-emerald-800 เป็นสีจาก palette
                   ของ Tailwind เอง ไม่ใช่ token --color-emerald ของเรา สีเลย
                   ไม่ตรงกับปุ่มหลักอื่น และไม่มี hover/focus/disabled เลย */}
               <button
