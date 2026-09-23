@@ -1,14 +1,14 @@
 """
 llm_fallback.py
 
-Fallback field extraction ด้วย local LLM (qwen2.5:7b ผ่าน Ollama) สำหรับ field
+Fallback field extraction ด้วย local LLM (qwen3:8b ผ่าน Ollama) สำหรับ field
 ที่ regex-based parsing ใน parse_slip.py หาไม่เจอ - แก้ปัญหาสลิปจริงที่มี
 template/wording ต่างจาก mock slip ที่ regex ถูกออกแบบมาให้ตรง (เช่น สลิปจ่ายบิล/
 QR payment ที่ไม่มี label "จาก"/"ถึง" ชัดเจนแบบสลิปโอนเงินคนสู่คน)
 
 ติดตั้งก่อนใช้งาน:
     pip install ollama
-    (ต้องมี Ollama รันอยู่ในเครื่อง และดึงโมเดล qwen2.5:7b ไว้แล้ว: ollama pull qwen2.5:7b)
+    (ต้องมี Ollama รันอยู่ในเครื่อง และดึงโมเดล qwen3:8b ไว้แล้ว: ollama pull qwen3:8b)
 
 ใช้งาน:
     from rag.llm_fallback import llm_extract_fields
