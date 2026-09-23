@@ -16,11 +16,25 @@ const PRESETS = [
   { label: "ทั้งหมด", months: null },
 ] as const;
 
+// DEFAULT_PRESET (23 ก.ย. 2026): เปิด dashboard มาเริ่มที่ "12 เดือน" แทน
+// "ทั้งหมด" -- คนส่วนใหญ่สนใจช่วงล่าสุด และกราฟอ่านง่ายกว่า export ไว้ให้
+// dashboard/page.tsx ใช้ตั้งค่า dateRange เริ่มต้นให้ตรงกับปุ่มที่ติดสี
+// (ถ้าสองจุดนี้ไม่ตรงกัน ปุ่มจะโชว์ "12 เดือน" แต่ข้อมูลที่ดึงเป็นทั้งหมด)
+// ยังนับแบบ "ย้อนจากวันนี้" เหมือนเดิม (12 เดือน = 13 แท่ง เดือนหัวท้ายไม่เต็ม)
+// ตัดสินใจเก็บไว้แบบนี้ 23 ก.ย. 2026 หลังเทียบกับแบบเดือนปฏิทินแล้ว
+export const DEFAULT_PRESET = PRESETS[3];
+
+// toIsoDate (23 ก.ย. 2026): ประกอบวันที่จากเวลาเครื่อง (local) เอง -- เดิมใช้
+// toISOString() ซึ่งเป็นเวลา UTC ทำให้กด preset ช่วงตี 0 ถึง 7 โมงเช้าเวลาไทย
+// (UTC+7) แล้ววันที่เลื่อนไปเป็นเมื่อวาน สลิปของวันนั้นหลุดจากตัวกรอง
 function toIsoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
-function presetToRange(months: number | null): DateRange {
+export function presetToRange(months: number | null): DateRange {
   if (months === null) return {}; // "ทั้งหมด" -- ไม่กรองเลย
   const end = new Date();
   const start = new Date();
@@ -47,7 +61,7 @@ interface DateRangeFilterProps {
 // กรอก manual แล้ว preset ที่เลือกค้างไว้ (ถ้ามี) จะถูกยกเลิกอัตโนมัติ ไม่มี
 // การบล็อกการกดฝั่งใดฝั่งหนึ่งในทุกกรณี
 export default function DateRangeFilter({ onChange }: DateRangeFilterProps) {
-  const [activePreset, setActivePreset] = useState<string | null>(null);
+  const [activePreset, setActivePreset] = useState<string | null>(DEFAULT_PRESET.label);
   const [manualStart, setManualStart] = useState("");
   const [manualEnd, setManualEnd] = useState("");
   const startDateRef = useRef<HTMLInputElement>(null);

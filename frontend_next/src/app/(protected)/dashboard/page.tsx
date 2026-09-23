@@ -7,7 +7,7 @@ import type { DashboardSummaryResponse, RecentSlip } from "@/types/dashboard-typ
 import { MonthlyCountChart } from "@/components/dashboard/MonthlyCountChart";
 import { RecentSlipsList } from "@/components/dashboard/RecentSlipsList";
 import { SummaryCards } from "@/components/dashboard/SummaryCards";
-import DateRangeFilter, { type DateRange } from "@/components/dashboard/DateRangeFilter";
+import DateRangeFilter, { type DateRange, DEFAULT_PRESET, presetToRange } from "@/components/dashboard/DateRangeFilter";
 import AskTrigger from "@/components/ask/AskTrigger";
 
 export default function DashboardPage() {
@@ -21,7 +21,7 @@ export default function DashboardPage() {
   // dateRange (13 ก.ย. 2026): มาจาก DateRangeFilter (preset หรือ manual --
   // ดูตรรกะ "ใครกดหลังสุดชนะ" ใน DateRangeFilter.tsx เอง) คุมทั้งการ์ดสรุป
   // และกราฟรายเดือน เพราะทั้งคู่มาจาก endpoint /dashboard/summary เดียวกัน
-  const [dateRange, setDateRange] = useState<DateRange>({});
+  const [dateRange, setDateRange] = useState<DateRange>(() => presetToRange(DEFAULT_PRESET.months));
 
   // คืน promise (18 ก.ย. 2026) เพื่อให้ handleDelete รอ refetch เสร็จได้
   // -- ConfirmDialog จะได้ปิดพร้อมกับที่รายการอัปเดตแล้ว ไม่ปิดก่อนแล้วแถวค้าง
