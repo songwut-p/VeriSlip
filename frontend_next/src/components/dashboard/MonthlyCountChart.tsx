@@ -8,7 +8,29 @@ const THAI_MONTHS = [
   "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค.",
 ];
 
-function CustomTooltip({ active, payload, label }: any) {
+// type ของ props ที่ recharts ส่งให้ tooltip/cursor (23 ก.ย. 2026) -- เดิมเป็น
+// any ทั้งคู่ ผิดกฎ @typescript-eslint/no-explicit-any ประกาศเองเฉพาะ field
+// ที่ใช้จริง ไม่ import type จาก recharts เพราะชื่อ/รูปร่างเปลี่ยนตามเวอร์ชัน
+interface ChartPoint {
+  label: string;
+  amount: number;
+}
+
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: { value?: number }[];
+  label?: string;
+}
+
+interface CustomCursorProps {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  payload?: { payload?: ChartPoint }[];
+}
+
+function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
   if (!active || !payload || !payload.length) return null;
 
   const amount = payload[0].value;
@@ -24,7 +46,7 @@ function CustomTooltip({ active, payload, label }: any) {
   );
 }
 
-function CustomCursor(props: any) {
+function CustomCursor(props: CustomCursorProps) {
   const { x, y, width, height, payload } = props;
   const amount = payload?.[0]?.payload?.amount;
   if (!amount || amount === 0) return null;
@@ -57,6 +79,18 @@ function enumerateMonths(start: YearMonth, end: YearMonth): YearMonth[] {
   return months;
 }
 
+// MAX_ZERO_FILL_MONTHS (23 ก.ย. 2026): ถ้าช่วงที่จะวาดยาวเกินนี้ เลิกเติมเดือน
+// ว่าง โชว์เฉพาะเดือนที่มีข้อมูลแทน -- เดิมกด "ทั้งหมด" กับบัญชีที่มีสลิป
+// ทดสอบปี 2022 ปนกับ 2026 ได้ 55 แท่ง มีข้อมูลจริงแค่ 5 แท่ง กราฟยืดเป็น
+// แถบว่างยาว เลือก 24 = 2 เท่าของ preset ยาวสุด (12 เดือน) preset ทั้งหมด
+// จึงไม่โดนกฎนี้ มีผลเฉพาะ "ทั้งหมด" หรือเลือกวันที่เองเป็นช่วงยาวเท่านั้น
+// ข้อแลก: แกนเดือนจะไม่ต่อเนื่อง แต่ label มีปี พ.ศ. กำกับทุกแท่งอยู่แล้ว
+const MAX_ZERO_FILL_MONTHS = 24;
+
+function monthKey({ year, month }: YearMonth): number {
+  return year * 12 + month;
+}
+
 function parseIsoDate(iso: string): YearMonth {
   const [y, m] = iso.split("-").map(Number);
   return { year: y, month: m };
@@ -81,6 +115,8 @@ interface MonthlyCountChartProps {
 
 export function MonthlyCountChart({ data, startDate, endDate }: MonthlyCountChartProps) {
   let months: YearMonth[];
+  // เรียงครั้งเดียว ใช้ทั้งตอนหาช่วง "ทั้งหมด" และตอนเลิกเติมเดือนว่าง
+  const sortedData = [...data].sort((a, b) => monthKey(a) - monthKey(b));
 
   if (startDate && endDate) {
     // มีตัวกรองช่วงวันที่ชัดเจน (preset หรือ manual) -- โชว์เฉพาะเดือนใน
@@ -89,16 +125,29 @@ export function MonthlyCountChart({ data, startDate, endDate }: MonthlyCountChar
   } else if (data.length > 0) {
     // "ทั้งหมด" (ไม่กรอง) -- derive ช่วงเดือนจากข้อมูลจริงที่มีอยู่ แทนที่จะ
     // ตายตัวเป็นปีปัจจุบัน เผื่อมีข้อมูลข้ามปีจริง
-    const sorted = [...data].sort((a, b) => a.year * 12 + a.month - (b.year * 12 + b.month));
+    const first = sortedData[0];
+    const last = sortedData[sortedData.length - 1];
     months = enumerateMonths(
-      { year: sorted[0].year, month: sorted[0].month },
-      { year: sorted[sorted.length - 1].year, month: sorted[sorted.length - 1].month }
+      { year: first.year, month: first.month },
+      { year: last.year, month: last.month }
     );
   } else {
     // ไม่มีข้อมูลเลยและไม่มีตัวกรอง -- fallback โชว์แค่เดือนปัจจุบันเดือนเดียว
     // (ไม่มีข้อมูลอ้างอิงให้กำหนดช่วงกว้างกว่านี้ได้อย่างมีความหมาย)
     const now = new Date();
     months = [{ year: now.getFullYear(), month: now.getMonth() + 1 }];
+  }
+
+  if (months.length > MAX_ZERO_FILL_MONTHS) {
+    // กันเดือนซ้ำเผื่อ data มีหลายแถวในเดือนเดียวกัน (ไม่ควรเกิด แต่กันไว้)
+    const seen = new Set<number>();
+    months = [];
+    for (const { year, month } of sortedData) {
+      const key = monthKey({ year, month });
+      if (seen.has(key)) continue;
+      seen.add(key);
+      months.push({ year, month });
+    }
   }
 
   const spansMultipleYears = new Set(months.map((m) => m.year)).size > 1;
