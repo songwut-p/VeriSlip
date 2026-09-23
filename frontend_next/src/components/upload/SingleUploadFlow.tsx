@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect , useRef} from "react";
+import { useState, useEffect } from "react";
 import { apiFetch, ApiRequestError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { FIELD_LABELS, NUMERIC_FIELDS } from "@/lib/constants";
@@ -23,7 +23,11 @@ interface SaveSlipResponse {
 // เดิมคือ UploadPage ทั้งหน้า -- ตอนนี้แยกออกมาเป็น component
 // รับ "ไฟล์ที่เลือกไว้แล้ว" เป็น prop แทนที่จะมี <input> ของตัวเอง
 // เนื้อใน (OCR/แก้ฟอร์ม/บันทึก) ไม่ถูกแก้แม้แต่บรรทัดเดียว
-   export default function SingleUploadFlow({ file, onCancel }: { file: File; onCancel: () => void }) {
+//
+// เอา prop onCancel ออก (23 ก.ย. 2026): ทางออกเดียวคือปุ่ม "ยกเลิก" บนแถบ
+// "เปลี่ยนไฟล์" ใน upload/page.tsx (ถามยืนยันทุกครั้ง) -- ปุ่ม "ยกเลิก" ตอน
+// โหลดกับปุ่ม "เลือกไฟล์ใหม่" ที่เคยอยู่ในนี้ซ้ำหน้าที่กัน จึงลบทิ้งทั้งคู่
+export default function SingleUploadFlow({ file }: { file: File }) {
   const { token } = useAuth();
   const [previewUrl] = useState<string>(() => URL.createObjectURL(file));
   const [result, setResult] = useState<UploadSlipResponse | null>(null);
@@ -34,49 +38,56 @@ interface SaveSlipResponse {
   // เหมือนฟิลด์อื่น จึงแยก state ต่างหาก ไม่ผ่าน editedValues loop
   const [transactionType, setTransactionType] = useState<"income" | "expense" | "">("");
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  // เริ่มเป็น true (23 ก.ย. 2026) -- component นี้ถูกสร้างมาเพื่อ OCR ทันที
+  // ที่ mount อยู่แล้ว เดิม runOcr เรียก setIsLoading(true) ใน effect ซึ่งผิด
+  // กฎ react-hooks/set-state-in-effect (ตัวเดียวกับที่แก้ใน dashboard)
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
   // เดิมทำงานตอน onChange ของ <input> -- ตอนนี้ทำตอน component นี้ mount
   // แทน เพราะพ่อแม่ (หน้ารวม) เลือกไฟล์มาให้ก่อนแล้วถึงสร้าง component นี้
-  
-const controllerRef = useRef<AbortController | null>(null);
-
-useEffect(() => {
-  const runOcr = async () => {
-    setIsLoading(true);
+  useEffect(() => {
+    // abort ตอน unmount (23 ก.ย. 2026): กด "ยกเลิก" บนแถบแล้ว component นี้
+    // ถูกถอดออก -- เดิมคำขอ OCR วิ่งต่อจนจบทั้งที่ไม่มีใครรอผลแล้ว
+    // controller เป็นตัวแปรในรอบ effect นี้เอง ไม่ต้องใช้ ref อีกแล้ว
     const controller = new AbortController();
-    controllerRef.current = controller;
-    const formData = new FormData();
-    formData.append("file", file);
-    try {
-      const data = await apiFetch<UploadSlipResponse>("/upload-slip", {
-        method: "POST",
-        body: formData,
-        token,
-        signal: controller.signal,
-      });
-      setResult(data);
-      const displayFields = prepareDisplayFields(data.parsed);
-      const initial: Record<string, string> = {};
-      for (const [key, value] of Object.entries(displayFields)) {
-        initial[key] = value === null ? "" : String(value);
+
+    const runOcr = async () => {
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const data = await apiFetch<UploadSlipResponse>("/upload-slip", {
+          method: "POST",
+          body: formData,
+          token,
+          signal: controller.signal,
+        });
+        setResult(data);
+        const displayFields = prepareDisplayFields(data.parsed);
+        const initial: Record<string, string> = {};
+        for (const [key, value] of Object.entries(displayFields)) {
+          initial[key] = value === null ? "" : String(value);
+        }
+        setEditedValues(initial);
+        setBaselineValues(initial);
+      } catch (err) {
+        // ถูก abort (ยกเลิก/unmount) -- ไม่ใช่ error จริง ไม่ต้องโชว์กล่องแดง
+        if (err instanceof Error && err.name === "AbortError") return;
+        setError(err instanceof ApiRequestError ? err.message : "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้");
+      } finally {
+        // เช็ค aborted ก่อน -- ตอน dev React StrictMode รัน effect 2 รอบ
+        // (mount → cleanup → mount) รอบแรกโดน abort แล้วถ้ายัง set false
+        // ตรงนี้ spinner จะหายทั้งที่รอบสองยังโหลดอยู่
+        if (!controller.signal.aborted) setIsLoading(false);
       }
-      setEditedValues(initial);
-      setBaselineValues(initial);
-    } catch (err) {
-      // ผู้ใช้กดยกเลิกเอง (abort) -- ไม่ใช่ error จริง ไม่ต้องโชว์กล่องแดง
-      if (err instanceof Error && err.name === "AbortError") return;
-      setError(err instanceof ApiRequestError ? err.message : "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  runOcr();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, []);
+    };
+    runOcr();
+
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSave = async () => {
     if (!result) return;
@@ -111,7 +122,7 @@ useEffect(() => {
       }
     }
 
-          if (result.doc_type === "bank_slip") {
+    if (result.doc_type === "bank_slip") {
       Object.assign(finalParsed, getCurrentIssueFlags(result.parsed, editedValues));
     }
 
@@ -153,21 +164,11 @@ useEffect(() => {
   return (
     <div>
       {isLoading && (
-  <div className="mb-4 flex items-center gap-3">
-    <Loader2 className="animate-spin text-emerald" size={18} />
-    <p className="text-text-primary">กำลังอ่านไฟล์ด้วย OCR...</p>
-    <button
-      type="button"
-      onClick={() => {
-        controllerRef.current?.abort();
-        onCancel();
-      }}
-      className="rounded-lg border border-border-gray px-3 py-1 text-sm text-text-primary hover:bg-page-bg"
-    >
-      ยกเลิก
-    </button>
-  </div>
-)}
+        <div className="mb-4 flex items-center gap-3">
+          <Loader2 className="animate-spin text-emerald" size={18} />
+          <p className="text-text-primary">กำลังอ่านไฟล์ด้วย OCR...</p>
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -183,7 +184,7 @@ useEffect(() => {
 
       {result && (
         <>
-                    {warnings.length > 0 ? (
+          {warnings.length > 0 ? (
             <div className="mb-4 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-700">
               <p>
                 ⚠️ ตรวจพบจุดที่ควรเช็ก {warnings.length} จุด (ตรวจพบว่าเป็น: {DOC_TYPE_LABELS[result.doc_type] ?? result.doc_type})
@@ -201,14 +202,6 @@ useEffect(() => {
               ✅ อ่านไฟล์สำเร็จ — ตรวจพบว่าเป็น: {DOC_TYPE_LABELS[result.doc_type] ?? result.doc_type}
             </div>
           )}
-
-          <button
-              type="button"
-              onClick={onCancel}
-              className="mb-4 rounded-lg border border-border-gray px-3 py-1 text-sm text-text-primary hover:bg-page-bg"
-            >
-              เลือกไฟล์ใหม่
-          </button>
 
           <div className="flex items-start gap-6">
             <div className="w-2/5 rounded-xl border border-border-gray bg-card-bg p-4">
