@@ -4,12 +4,22 @@ import { useState, useEffect, useRef, ChangeEvent, DragEvent } from "react";
 import { UploadCloud } from "lucide-react";
 import SingleUploadFlow from "@/components/upload/SingleUploadFlow";
 import MultiUploadFlow from "@/components/upload/MultiUploadFlow";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 export default function UploadPage() {
   const [selectedFiles, setSelectedFiles] = useState<File[] | null>(null);
   const [uploadKey, setUploadKey] = useState(0);
   const [queueCount, setQueueCount] = useState<number | null>(null);
-  const handleCancel = () => setSelectedFiles(null);
+  // รีเซ็ต queueCount ด้วย (23 ก.ย. 2026) -- ไม่งั้นค่าจากคิว multi รอบก่อน
+  // ค้างอยู่จนกว่าจะเลือกไฟล์ใหม่ (acceptFiles ก็รีเซ็ตแบบเดียวกัน)
+  const handleCancel = () => {
+    setSelectedFiles(null);
+    setQueueCount(null);
+  };
+  // ปุ่ม "ยกเลิก" บนแถบ (23 ก.ย. 2026): ถามยืนยันทุกครั้ง ไม่เช็คว่าแก้ฟอร์ม
+  // ไปหรือยัง -- page นี้มองไม่เห็น state ข้างใน Single/Multi และกดเพิ่ม
+  // ครั้งเดียวปลอดภัยกว่าลืมส่งสถานะขึ้นมาตอนเพิ่มช่องในฟอร์มวันหลัง
+  const [isConfirmingCancel, setIsConfirmingCancel] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
   // ข้อความเตือนแบบใช้ร่วมกัน: ไฟล์ผิดประเภท / ปล่อยไฟล์นอกกล่อง
@@ -132,17 +142,26 @@ export default function UploadPage() {
                 ? "ไม่มีไฟล์ในคิว"
                 : `เลือกไว้ ${queueCount ?? selectedFiles.length} ไฟล์`}
             </p>
-            <label htmlFor="slip-upload-input" className="cursor-pointer text-sm text-emerald hover:underline">
-              เปลี่ยนไฟล์
-              <input
-                id="slip-upload-input"
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={handleFilesChange}
-                className="hidden"
-              />
-            </label>
+            <div className="flex items-center gap-4">
+              <label htmlFor="slip-upload-input" className="cursor-pointer text-sm text-emerald hover:underline">
+                เปลี่ยนไฟล์
+                <input
+                  id="slip-upload-input"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleFilesChange}
+                  className="hidden"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => setIsConfirmingCancel(true)}
+                className="rounded text-sm text-danger hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              >
+                ยกเลิก
+              </button>
+            </div>
           </div>
           {warningMessage && (
             <p className="mt-2 rounded-md bg-warning-bg px-3 py-2 text-sm text-warning">{warningMessage}</p>
@@ -157,6 +176,23 @@ export default function UploadPage() {
       {selectedFiles && selectedFiles.length > 1 && (
         <MultiUploadFlow key={uploadKey} files={selectedFiles} onQueueChange={setQueueCount} />
       )}
+
+      <ConfirmDialog
+        open={isConfirmingCancel}
+        title="ยกเลิกการอัปโหลด?"
+        message="ไฟล์ที่เลือกและข้อมูลที่แก้ไว้จะหายทั้งหมด (สลิปที่บันทึกแล้วไม่ได้รับผลกระทบ)"
+        confirmLabel="ยกเลิกการอัปโหลด"
+        // "เก็บไว้" แทนค่าเริ่มต้น "ยกเลิก" (23 ก.ย. 2026) -- ตอนเทสกดปุ่มแดง
+        // พลาดไป 2 รอบ เพราะในคำถาม "ยกเลิกการอัปโหลด?" ปุ่มชื่อ "ยกเลิก"
+        // อ่านได้ว่า "ใช่ ยกเลิกเลย" ใช้คำเดียวกับ dialog ของปุ่ม × ใน MultiUploadFlow
+        cancelLabel="เก็บไว้"
+        isBusy={false}
+        onConfirm={() => {
+          setIsConfirmingCancel(false);
+          handleCancel();
+        }}
+        onCancel={() => setIsConfirmingCancel(false)}
+      />
     </div>
   );
 }
