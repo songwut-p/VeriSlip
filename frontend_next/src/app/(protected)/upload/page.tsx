@@ -170,7 +170,7 @@ export default function UploadPage() {
       )}
 
       {selectedFiles && selectedFiles.length === 1 && (
-        <SingleUploadFlow key={uploadKey} file={selectedFiles[0]} />
+        <SingleUploadFlow key={uploadKey} file={selectedFiles[0]} onQueueChange={setQueueCount} />
       )}
 
       {selectedFiles && selectedFiles.length > 1 && (

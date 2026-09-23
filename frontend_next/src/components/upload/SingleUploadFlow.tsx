@@ -27,7 +27,16 @@ interface SaveSlipResponse {
 // เอา prop onCancel ออก (23 ก.ย. 2026): ทางออกเดียวคือปุ่ม "ยกเลิก" บนแถบ
 // "เปลี่ยนไฟล์" ใน upload/page.tsx (ถามยืนยันทุกครั้ง) -- ปุ่ม "ยกเลิก" ตอน
 // โหลดกับปุ่ม "เลือกไฟล์ใหม่" ที่เคยอยู่ในนี้ซ้ำหน้าที่กัน จึงลบทิ้งทั้งคู่
-export default function SingleUploadFlow({ file }: { file: File }) {
+//
+// onQueueChange (23 ก.ย. 2026): แจ้งจำนวนไฟล์ที่เหลือให้หน้าแม่ แบบเดียวกับ
+// MultiUploadFlow -- บันทึกสำเร็จแล้วส่ง 0 แถบด้านบนจะเปลี่ยนเป็น "ไม่มีไฟล์ในคิว"
+export default function SingleUploadFlow({
+  file,
+  onQueueChange,
+}: {
+  file: File;
+  onQueueChange?: (count: number) => void;
+}) {
   const { token } = useAuth();
   const [previewUrl] = useState<string>(() => URL.createObjectURL(file));
   const [result, setResult] = useState<UploadSlipResponse | null>(null);
@@ -44,6 +53,10 @@ export default function SingleUploadFlow({ file }: { file: File }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  // สรุปสลิปที่เพิ่งบันทึก (23 ก.ย. 2026) -- หลังบันทึกฟอร์มจะหายไป ผู้ใช้จะไม่
+  // เห็นอีกว่าบันทึกค่าไหนไป จึงเก็บจำนวนเงิน/วันที่/ธนาคารจากค่าที่แก้ล่าสุด
+  // ไว้โชว์ใน banner (multi ใช้แค่จำนวนไฟล์ เพราะสรุปทีละใบจะยาวเกิน)
+  const [savedSummary, setSavedSummary] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
   // เดิมทำงานตอน onChange ของ <input> -- ตอนนี้ทำตอน component นี้ mount
@@ -150,7 +163,17 @@ export default function SingleUploadFlow({ file }: { file: File }) {
         body: imageForm,
       });
 
+      const amountText = editedValues.amount?.trim();
+      const summaryParts = [
+        amountText
+          ? `${Number(amountText).toLocaleString("th-TH", { maximumFractionDigits: 2 })} บาท`
+          : "",
+        editedValues.datetime_raw?.trim() ?? "",
+        editedValues.bank_name?.trim() ?? "",
+      ].filter(Boolean);
+      setSavedSummary(summaryParts.length > 0 ? summaryParts.join(" · ") : null);
       setSaveSuccess(true);
+      onQueueChange?.(0);
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : "บันทึกไม่สำเร็จ เชื่อมต่อเซิร์ฟเวอร์ไม่ได้");
     } finally {
@@ -178,11 +201,15 @@ export default function SingleUploadFlow({ file }: { file: File }) {
 
       {saveSuccess && (
         <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
-          ✅ บันทึกสำเร็จแล้ว
+          ✅ บันทึกแล้ว{savedSummary ? `: ${savedSummary}` : ""}
         </div>
       )}
 
-      {result && (
+      {/* !saveSuccess (23 ก.ย. 2026): บันทึกสำเร็จแล้วซ่อน banner เตือน รูป และ
+          ฟอร์มทั้งหมด เหลือแค่ banner สรุปด้านบน ให้เหมือน MultiUploadFlow หลัง
+          บันทึกครบ -- เดิมทุกอย่างค้างอยู่และกดบันทึกซ้ำได้ ถ้าบันทึกไม่สำเร็จ
+          saveSuccess ยังเป็น false ฟอร์มจึงยังอยู่ให้แก้แล้วกดใหม่ได้ */}
+      {result && !saveSuccess && (
         <>
           {warnings.length > 0 ? (
             <div className="mb-4 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-700">
