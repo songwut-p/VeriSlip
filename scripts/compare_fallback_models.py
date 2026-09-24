@@ -5,6 +5,7 @@ compare_fallback_models.py
 
 รัน:  PYTHONPATH=. python scripts/compare_fallback_models.py [model ...]
 ไม่ใส่ model = รันทั้ง 3 ตัวตามลำดับ
+PYTHONPATH=. python scripts/compare_fallback_models.py --rescore <ผล.json ...>
 """
 import json, re, sys, time
 from datetime import datetime
@@ -25,6 +26,16 @@ def norm(v):
 
 ID_FIELDS = {"sender_account", "recipient_account", "transaction_id"}
 
+NAME_FIELDS = {"sender_name", "recipient_name"}
+# เรียงคำยาวก่อน - "นางสาว" ต้องเช็คก่อน "นาง" ไม่งั้นจะตัดแค่ "นาง" แล้วเหลือ "สาว"
+HONORIFICS = ("นางสาว", "น.ส.", "นาง", "นาย", "ด.ช.", "ด.ญ.")
+
+
+def strip_honorific(s):
+    for h in HONORIFICS:
+        if s.startswith(h):
+            return s[len(h):].strip()
+    return s
 
 def judge(field, pred, truth):
     p, t = norm(pred), norm(truth)
@@ -41,10 +52,38 @@ def judge(field, pred, truth):
         # เลขบัญชี/เลขรายการ: ตัว x ที่ปิดบังเป็นตัวใหญ่หรือเล็กก็ได้ และช่องว่างที่ OCR
         # แทรกกลางเลขไม่ได้เปลี่ยนความหมาย - ไม่ควรนับเป็นความผิดของโมเดล
         return "correct" if re.sub(r"\s+", "", p).lower() == re.sub(r"\s+", "", t).lower() else "wrong"
+    if field in NAME_FIELDS:
+        # prompt ของ fallback สอนให้ตอบชื่อพร้อมคำนำหน้า แต่เฉลยกรอกแบบไม่มี
+        # ทั้งสองแบบถือว่าถูก - ตัดออกทั้งสองฝั่งก่อนเทียบ
+        return "correct" if strip_honorific(p) == strip_honorific(t) else "wrong"
     return "correct" if p == t else "wrong"
 
 
+def rescore(paths):
+    """ให้คะแนนใหม่จากไฟล์ผลเดิม ด้วย judge() และเฉลยตัวล่าสุด - ไม่เรียกโมเดล
+    (ผลของโมเดลนิ่งที่ temperature 0 เลยใช้ pred เดิมได้)"""
+    with open(GT_PATH, encoding="utf-8") as f:
+        gt = json.load(f)
+    for path in paths:
+        with open(path, encoding="utf-8") as f:
+            report = json.load(f)
+        for model, data in report["models"].items():
+            print(f"\n=== {model} ({path}) ===")
+            counts, n = {}, 0
+            for r in data["rows"]:
+                truth = gt.get(r["file"], {}).get(r["field"], r["truth"])
+                verdict = judge(r["field"], r["pred"], truth)
+                counts[verdict] = counts.get(verdict, 0) + 1
+                n += 1
+                if verdict not in ("correct", "correct_null"):
+                    print(f"  [{verdict}] {r['file'][:30]} {r['field']}: pred={r['pred']!r} truth={truth!r}")
+            ok = counts.get("correct", 0) + counts.get("correct_null", 0)
+            print(f"ถูก {ok}/{n} | {counts} | เวลาเดิม {data['summary']['avg_call_s']}s/ไฟล์")
+
+
 def main():
+    if sys.argv[1:2] == ["--rescore"]:
+        return rescore(sys.argv[2:])
     models = sys.argv[1:] or DEFAULT_MODELS
     with open(GT_PATH, encoding="utf-8") as f:
         gt = json.load(f)
