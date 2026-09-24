@@ -1,7 +1,7 @@
 """
 test_real_slips_hybrid.py
 
-ทดสอบ hybrid_parse_slip_text() (regex + LLM fallback ด้วย qwen2.5:7b) กับสลิปจริง
+ทดสอบ hybrid_parse_slip_text() (regex + LLM fallback ด้วย qwen3:8b) กับสลิปจริง
 ทั้งหมดใน Test_Original/ เทียบกับผล regex-only เดิม (parse_slip_text())
 
 ผลลัพธ์:

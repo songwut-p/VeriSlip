@@ -23,7 +23,7 @@ HYBRID_FALLBACK_FIELDS = [
 def hybrid_parse_slip_text(ocr_text: str, use_llm_fallback: bool = True, llm_model: str = "qwen3:8b") -> dict:
     """
     เหมือน parse_slip_text() แต่เพิ่มขั้นตอน fallback: field ไหนที่ regex parse
-    ไม่ได้ (เป็น None) จะส่ง OCR text ไปให้ local LLM (qwen2.5:7b ผ่าน Ollama)
+    ไม่ได้ (เป็น None) จะส่ง OCR text ไปให้ local LLM (qwen3:8b ผ่าน Ollama)
     ช่วยดึงแทน เพื่อรองรับสลิปจริงที่มี template/wording ต่างจาก mock
 
     เพิ่ม key "extraction_source" (dict) บอกว่าแต่ละ field มาจาก "regex", "llm", หรือ

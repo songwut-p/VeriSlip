@@ -2,7 +2,7 @@
 rag_qa.py — Phase 1: Single-slip Q&A (basic RAG, ไม่มี vector DB)
 
 ใช้ dict ที่ได้จาก hybrid pipeline (parse_slip.py + llm_fallback.py)
-เป็น context ตรง ๆ แล้วส่งให้โมเดล local (qwen2.5:7b ผ่าน Ollama) ตอบคำถาม
+เป็น context ตรง ๆ แล้วส่งให้โมเดล local (qwen3:8b ผ่าน Ollama) ตอบคำถาม
 
 Design principles (สอดคล้องกับ parse_slip.py เดิม):
 - ฟิลด์ที่ missing จะบอกตรง ๆ ในภาษาไทย พร้อมเหตุผลถ้ามี — ไม่ silent-drop
