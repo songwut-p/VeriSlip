@@ -6,8 +6,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { FIELD_LABELS, NUMERIC_FIELDS, NAME_FIELDS } from "@/lib/constants";
 import { prepareDisplayFields, getWarningItems, getCurrentIssueFlags } from "@/lib/slipFields";
 import type { UploadSlipResponse, ParsedFields } from "@/types/slip";
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import ConfirmDialog from "@/components/ConfirmDialog";
+
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   bank_slip: "สลิปโอนเงิน",
@@ -84,17 +85,38 @@ export default function MultiUploadFlow({
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
   };
 
+    // ลบไฟล์ออกจากคิวจริง -- แยกออกมาเพราะมีทั้งทางลบทันทีและทางผ่าน dialog
+  // (29 ก.ย. 2026) ย้าย setActiveId ออกจาก updater ของ setFiles ด้วย
+  // เพราะ updater ควรเป็น pure (StrictMode เรียกซ้ำ 2 รอบ)
+  const removeFile = (id: number) => {
+    const remaining = files.filter((f) => f.id !== id);
+    setFiles(remaining);
+    if (activeId === id) setActiveId(remaining[0]?.id ?? null);
+  };
+
+  // แท็บนี้มีสิ่งที่ผู้ใช้ทำไปแล้วหรือยัง (เลือกรายรับ/จ่าย หรือแก้ฟิลด์)
+  // เทียบกับค่าที่ได้จาก OCR ตอนแรก -- ถ้ายังไม่ได้ทำอะไร ลบทิ้งไม่มีอะไรหาย
+  const isDirty = (f: QueueFile) => {
+    if (f.transactionType) return true;
+    if (!f.result) return false;
+    const initial = prepareDisplayFields(f.result.parsed);
+    return Object.entries(f.editedValues).some(
+      ([key, value]) => value !== (initial[key] == null ? "" : String(initial[key])),
+    );
+  };
+
+  // (29 ก.ย. 2026) ถามยืนยันเฉพาะตอนมีของจะหาย หรือเป็นไฟล์สุดท้ายในคิว
+  const handleRemoveClick = (f: QueueFile) => {
+    if (files.length === 1 || isDirty(f)) {
+      setPendingCancel({ id: f.id, name: f.file.name });
+    } else {
+      removeFile(f.id);
+    }
+  };
+
   const handleConfirmCancel = () => {
     if (!pendingCancel) return;
-    const id = pendingCancel.id;
-
-    setFiles((prev) => {
-      const remaining = prev.filter((f) => f.id !== id);
-      if (activeId === id) {
-        setActiveId(remaining.length > 0 ? remaining[0].id : null);
-      }
-      return remaining;
-    });
+    removeFile(pendingCancel.id);
     setPendingCancel(null);
   };
 
@@ -249,28 +271,40 @@ export default function MultiUploadFlow({
               activeFile.result -- เดิมแท็บกับปุ่ม × โผล่เฉพาะตอน OCR เสร็จ
               ทำให้ไฟล์ที่ยังโหลดหรือ OCR พังสลับ/ยกเลิกไม่ได้ ตอนนี้อยู่นอก
               เงื่อนไข result จึงเห็นและกดได้ตลอดตราบที่ยังมีไฟล์ในคิว */}
-          <div className="mb-4 flex gap-2">
-            {files.map((f, index) => (
-              <div key={f.id} className="flex-1">
-                <button
-                  onClick={() => setActiveId(f.id)}
-                  className={`mb-1 w-full rounded-lg px-3 py-2 text-sm transition-colors ${
-                    f.id === activeId
-                      ? "bg-emerald text-white"
-                      : "border border-border-gray bg-card-bg text-text-primary hover:bg-soft-green-bg"
-                  }`}
-                >
-                  {index + 1}/{files.length}
-                  {f.isLoading && " ⏳"}
-                </button>
-                <button
-                  onClick={() => setPendingCancel({ id: f.id, name: f.file.name })}
-                  className="w-full rounded-lg border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
+                    <div className="mb-4 flex gap-2">
+            {files.map((f, index) => {
+              const isActive = f.id === activeId;
+              return (
+                <div key={f.id} className="relative flex-1">
+                  <button
+                    onClick={() => setActiveId(f.id)}
+                    className={`w-full rounded-lg px-8 py-2 text-sm transition-colors ${
+                      isActive
+                        ? "bg-emerald text-white"
+                        : "border border-border-gray bg-card-bg text-text-primary hover:bg-soft-green-bg"
+                    }`}
+                  >
+                    {index + 1}/{files.length}
+                    {f.isLoading && " ⏳"}
+                  </button>
+                  {/* × เป็นปุ่มพี่น้อง ไม่ได้ซ้อนอยู่ในปุ่มแท็บ (button ซ้อน button
+                      ผิด HTML) จึงไม่ต้อง stopPropagation -- กด × ไม่เปลี่ยนแท็บ */}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveClick(f)}
+                    aria-label={`ลบไฟล์ที่ ${index + 1} (${f.file.name})`}
+                    title="ลบไฟล์นี้ออกจากคิว"
+                    className={`absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1 transition-colors ${
+                      isActive
+                        ? "text-white/80 hover:bg-white/20 hover:text-white"
+                        : "text-gray-500 hover:bg-red-50 hover:text-red-600"
+                    }`}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              );
+            })}
           </div>
 
           {activeFile.isLoading && (
