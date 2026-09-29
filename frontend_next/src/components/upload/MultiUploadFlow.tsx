@@ -9,7 +9,6 @@ import type { UploadSlipResponse, ParsedFields } from "@/types/slip";
 import { Loader2, X } from "lucide-react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 
-
 const DOC_TYPE_LABELS: Record<string, string> = {
   bank_slip: "สลิปโอนเงิน",
   stock_confirmation: "คำสั่งซื้อหุ้น",
@@ -64,28 +63,40 @@ export default function MultiUploadFlow({
   onQueueChange?: (count: number) => void;
 }) {
   const { token } = useAuth();
-  const [files, setFiles] = useState<QueueFile[]>([]);
-  const [activeId, setActiveId] = useState<number | null>(null);
+  // (29 ก.ย. 2026) สร้างคิวตั้งแต่ประกาศ state แทนการ setFiles ใน useEffect
+  // (แก้ lint set-state-in-effect) -- ทำได้เพราะ component remount ทุกครั้ง
+  // ที่เลือกไฟล์ชุดใหม่ (uploadKey) ใช้ index เป็น id แทน Date.now() เพราะ
+  // ฟังก์ชันตอน render ควร pure และ id ต้องไม่ซ้ำแค่ภายในคิวชุดนี้
+  const [files, setFiles] = useState<QueueFile[]>(() =>
+    initialFiles.map((file, index) => ({
+      id: index,
+      file,
+      previewUrl: URL.createObjectURL(file),
+      isLoading: true,
+      error: null,
+      result: null,
+      editedValues: {},
+      transactionType: "",
+    })),
+  );
+  const [activeId, setActiveId] = useState<number | null>(() => files[0]?.id ?? null);
   const [confirmedAll, setConfirmedAll] = useState(false);
   const [isSavingAll, setIsSavingAll] = useState(false);
   const [saveAllErrors, setSaveAllErrors] = useState<string[]>([]);
   const [batchSummary, setBatchSummary] = useState<string | null>(null);
-  // แยกไว้กันสับสนระหว่าง "ยังโหลดคิวเริ่มต้นไม่เสร็จ" กับ "cancel จนคิวว่างสนิท"
-  // -- ไม่งั้นข้อความคิวว่างจะกระพริบโผล่มาแวบนึงตอน mount ก่อน useEffect ทำงาน
-  const [initialized, setInitialized] = useState(false);
   // pendingCancel (18 ก.ย. 2026): ไฟล์ในคิวที่รอยืนยันยกเลิก (null = modal ปิด)
   // แทน window.confirm เดิม -- เก็บแค่ id กับชื่อ เพราะ modal ต้องใช้แค่นี้
   const [pendingCancel, setPendingCancel] = useState<{ id: number; name: string } | null>(null);
-  // รายงานจำนวนไฟล์ที่เหลือในคิวให้หน้าแม่ (แถบ "เลือกไว้ N ไฟล์") -- รอ initialized
-  // ก่อน ไม่งั้นช่วงที่คิวยังว่างตอน mount จะรายงาน 0 ผิด ๆ
+  // รายงานจำนวนไฟล์ที่เหลือในคิวให้หน้าแม่ (แถบ "เลือกไว้ N ไฟล์") -- (29 ก.ย.
+  // 2026) ไม่ต้องรอ initialized แล้ว เพราะคิวพร้อมตั้งแต่ render แรก
   useEffect(() => {
-    if (initialized) onQueueChange?.(files.length);
-  }, [initialized, files.length, onQueueChange]);
+    onQueueChange?.(files.length);
+  }, [files.length, onQueueChange]);
   const updateFile = (id: number, patch: Partial<QueueFile>) => {
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
   };
 
-    // ลบไฟล์ออกจากคิวจริง -- แยกออกมาเพราะมีทั้งทางลบทันทีและทางผ่าน dialog
+  // ลบไฟล์ออกจากคิวจริง -- แยกออกมาเพราะมีทั้งทางลบทันทีและทางผ่าน dialog
   // (29 ก.ย. 2026) ย้าย setActiveId ออกจาก updater ของ setFiles ด้วย
   // เพราะ updater ควรเป็น pure (StrictMode เรียกซ้ำ 2 รอบ)
   const removeFile = (id: number) => {
@@ -141,22 +152,9 @@ export default function MultiUploadFlow({
     }
   };
 
+  // (29 ก.ย. 2026) คิวถูกสร้างใน useState แล้ว effect นี้เหลือหน้าที่แค่สั่ง OCR
   useEffect(() => {
-    const newQueue: QueueFile[] = initialFiles.map((file, index) => ({
-      id: Date.now() + index,
-      file,
-      previewUrl: URL.createObjectURL(file),
-      isLoading: true,
-      error: null,
-      result: null,
-      editedValues: {},
-      transactionType: "",
-    }));
-
-    setFiles(newQueue);
-    setActiveId(newQueue[0]?.id ?? null);
-    newQueue.forEach((item) => runOcr(item));
-    setInitialized(true);
+    files.forEach((item) => runOcr(item));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ตั้งใจรันแค่ครั้งเดียวตอน mount ต่อชุดไฟล์
   }, []);
 
@@ -258,8 +256,9 @@ export default function MultiUploadFlow({
       )}
 
       {/* คิวว่างสนิท (cancel จนหมดทุกไฟล์) -- เดิมตรงนี้ปล่อยโล่งเปล่าไม่มีอะไรเลย
-          บอกทางออกให้ผู้ใช้แทนที่จะเจอหน้าว่างงงๆ */}
-      {initialized && files.length === 0 && !batchSummary && (
+          บอกทางออกให้ผู้ใช้แทนที่จะเจอหน้าว่างงงๆ (29 ก.ย. 2026: ไม่ต้องเช็ก
+          initialized แล้ว เพราะคิวไม่เคยว่างตอน mount อีกต่อไป) */}
+      {files.length === 0 && !batchSummary && (
         <div className="rounded-lg border border-border-gray bg-card-bg px-4 py-6 text-center text-sm text-text-primary">
           ยกเลิกไฟล์ครบทุกไฟล์ในคิวแล้ว กรุณาเลือกไฟล์ใหม่จากด้านบนเพื่อเริ่มอัปโหลดอีกครั้ง
         </div>
@@ -271,7 +270,7 @@ export default function MultiUploadFlow({
               activeFile.result -- เดิมแท็บกับปุ่ม × โผล่เฉพาะตอน OCR เสร็จ
               ทำให้ไฟล์ที่ยังโหลดหรือ OCR พังสลับ/ยกเลิกไม่ได้ ตอนนี้อยู่นอก
               เงื่อนไข result จึงเห็นและกดได้ตลอดตราบที่ยังมีไฟล์ในคิว */}
-                    <div className="mb-4 flex gap-2">
+          <div className="mb-4 flex gap-2">
             {files.map((f, index) => {
               const isActive = f.id === activeId;
               return (
@@ -322,7 +321,7 @@ export default function MultiUploadFlow({
 
           {activeFile.result && (() => {
             const displayFields = prepareDisplayFields(activeFile.result.parsed);
-             const warnings = getWarningItems(
+            const warnings = getWarningItems(
               activeFile.result.parsed,
               activeFile.editedValues,
             );
@@ -331,7 +330,7 @@ export default function MultiUploadFlow({
 
             return (
               <>
-                                {warnings.length > 0 ? (
+                {warnings.length > 0 ? (
                   <div className="mb-4 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-700">
                     <p>
                       ⚠️ ตรวจพบจุดที่ควรเช็ก {warnings.length} จุด (ตรวจพบว่าเป็น: {docTypeLabel})
