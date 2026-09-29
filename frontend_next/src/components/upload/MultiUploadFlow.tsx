@@ -248,9 +248,12 @@ export default function MultiUploadFlow({
   const anyLoading = files.some((f) => f.isLoading);
 
   return (
-    <div>
+    // (29 ก.ย. 2026) จอ lg: flow นี้สูงเท่ากล่องที่ page.tsx ส่งมา (lg:h-full)
+    // ส่วนบน/ล่างสูงตามเนื้อหา (shrink-0) แถวรูป+ฟอร์มกินที่เหลือแล้วเลื่อนในตัว
+    // ลูกใน <>...</> ของ activeFile เป็น flex item ของ div นี้โดยตรง
+    <div className="lg:flex lg:h-full lg:flex-col">
       {batchSummary && (
-        <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+        <div className="mb-4 shrink-0 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
           {batchSummary}
         </div>
       )}
@@ -259,7 +262,7 @@ export default function MultiUploadFlow({
           บอกทางออกให้ผู้ใช้แทนที่จะเจอหน้าว่างงงๆ (29 ก.ย. 2026: ไม่ต้องเช็ก
           initialized แล้ว เพราะคิวไม่เคยว่างตอน mount อีกต่อไป) */}
       {files.length === 0 && !batchSummary && (
-        <div className="rounded-lg border border-border-gray bg-card-bg px-4 py-6 text-center text-sm text-text-primary">
+        <div className="shrink-0 rounded-lg border border-border-gray bg-card-bg px-4 py-6 text-center text-sm text-text-primary">
           ยกเลิกไฟล์ครบทุกไฟล์ในคิวแล้ว กรุณาเลือกไฟล์ใหม่จากด้านบนเพื่อเริ่มอัปโหลดอีกครั้ง
         </div>
       )}
@@ -270,7 +273,7 @@ export default function MultiUploadFlow({
               activeFile.result -- เดิมแท็บกับปุ่ม × โผล่เฉพาะตอน OCR เสร็จ
               ทำให้ไฟล์ที่ยังโหลดหรือ OCR พังสลับ/ยกเลิกไม่ได้ ตอนนี้อยู่นอก
               เงื่อนไข result จึงเห็นและกดได้ตลอดตราบที่ยังมีไฟล์ในคิว */}
-          <div className="mb-4 flex gap-2">
+          <div className="mb-4 flex shrink-0 gap-2">
             {files.map((f, index) => {
               const isActive = f.id === activeId;
               return (
@@ -307,14 +310,14 @@ export default function MultiUploadFlow({
           </div>
 
           {activeFile.isLoading && (
-            <div className="mb-4 flex items-center gap-2">
+            <div className="mb-4 flex shrink-0 items-center gap-2">
               <Loader2 className="animate-spin text-emerald" size={18} />
               <p className="text-text-primary">กำลังอ่านไฟล์ด้วย OCR...</p>
             </div>
           )}
 
           {activeFile.error && (
-            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="mb-4 shrink-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {activeFile.error}
             </div>
           )}
@@ -331,7 +334,8 @@ export default function MultiUploadFlow({
             return (
               <>
                 {warnings.length > 0 ? (
-                  <div className="mb-4 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-700">
+                  // (29 ก.ย. 2026) lg: จำกัดความสูง กันแถบเตือนยาวๆ ดันกล่องรูป/ฟอร์มจนเตี้ย
+                  <div className="mb-4 shrink-0 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-700 lg:max-h-28 lg:overflow-y-auto">
                     <p>
                       ⚠️ ตรวจพบจุดที่ควรเช็ก {warnings.length} จุด (ตรวจพบว่าเป็น: {docTypeLabel})
                     </p>
@@ -344,16 +348,23 @@ export default function MultiUploadFlow({
                     </ul>
                   </div>
                 ) : (
-                  <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+                  <div className="mb-4 shrink-0 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
                     ✅ อ่านไฟล์สำเร็จ — ตรวจพบว่าเป็น: {docTypeLabel}
                   </div>
                 )}
 
-                <div className="flex items-start gap-6">
-                  <div className="w-2/5 rounded-xl border border-border-gray bg-card-bg p-4">
-                    <p className="mb-2 font-medium text-text-primary">🖼️ รูปต้นฉบับ</p>
+                {/* (29 ก.ย. 2026) lg: แถวนี้กินความสูงที่เหลือ (flex-1 min-h-0) และ
+                    ยืดสองกล่องให้สูงเท่ากัน (items-stretch) -- กล่องรูปย่อรูปให้เห็นทั้งใบ
+                    กล่องฟอร์มเลื่อนในตัวเอง */}
+                <div className="flex items-start gap-6 lg:min-h-0 lg:flex-1 lg:items-stretch">
+                  <div className="w-2/5 rounded-xl border border-border-gray bg-card-bg p-4 lg:flex lg:min-h-0 lg:flex-col">
+                    <p className="mb-2 shrink-0 font-medium text-text-primary">🖼️ รูปต้นฉบับ</p>
                     {/* eslint-disable-next-line @next/next/no-img-element -- blob URL */}
-                    <img src={activeFile.previewUrl} alt="สลิปต้นฉบับ" className="w-full rounded-lg" />
+                    <img
+                      src={activeFile.previewUrl}
+                      alt="สลิปต้นฉบับ"
+                      className="w-full rounded-lg lg:min-h-0 lg:flex-1 lg:object-contain"
+                    />
                   </div>
 
                   {/* sticky + max-h + overflow-y-auto (13 ก.ย. 2026): แก้จากรอบ
@@ -363,7 +374,11 @@ export default function MultiUploadFlow({
                       items-start + กล่องฟอร์ม sticky top-4 ให้ลอยค้างอยู่
                       ตำแหน่งเดิมของจอ ไม่ขยับตามความยาวของกล่องรูป
                       (แท็บย้ายไปอยู่เหนือสุดของหน้าแล้ว 19 ก.ย. 2026) */}
-                  <div className="w-3/5 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto scrollbar-hover-only rounded-xl border border-border-gray bg-card-bg p-4">
+                  {/* (29 ก.ย. 2026) lg: ยกเลิก sticky/max-h เพราะแถวแม่กำหนดความสูงให้แล้ว
+                      จอเล็กกว่า lg ยังใช้ sticky แบบเดิม */}
+                  <div 
+                    key={activeFile.id}
+                    className="w-3/5 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto scrollbar-hover-only rounded-xl border border-border-gray bg-card-bg p-4 lg:static lg:max-h-none lg:min-h-0">
                     <p className="mb-4 font-medium text-text-primary">📝 ตรวจสอบและแก้ไขข้อมูล</p>
 
                     {/* ประเภทรายการ (13 ก.ย. 2026): วางบนสุดของฟอร์ม แยกจาก
@@ -425,9 +440,11 @@ export default function MultiUploadFlow({
             );
           })()}
 
-          <div className="mt-6">
+          {/* (29 ก.ย. 2026) lg: ติดล่างจอตลอด (shrink-0) ปุ่มกับ error อยู่ด้วยกันเสมอ
+              error หลายแท็บจำกัดความสูงแล้วเลื่อนในตัว */}
+          <div className="mt-6 shrink-0">
             {saveAllErrors.length > 0 && (
-              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 lg:max-h-24 lg:overflow-y-auto">
                 {saveAllErrors.map((msg) => (
                   <div key={msg}>{msg}</div>
                 ))}

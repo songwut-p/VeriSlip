@@ -185,22 +185,28 @@ export default function SingleUploadFlow({
   const warnings = result ? getWarningItems(result.parsed, editedValues) : [];
 
   return (
-    <div>
+    // (29 ก.ย. 2026) จอ lg: โครงเดียวกับ MultiUploadFlow -- flow สูงเท่ากล่องที่
+    // page.tsx ส่งมา ส่วนบน/ล่างสูงตามเนื้อหา (shrink-0) แถวรูป+ฟอร์มกินที่เหลือ
+    // ลูกใน <>...</> ด้านล่างเป็น flex item ของ div นี้โดยตรง
+    <div className="lg:flex lg:h-full lg:flex-col">
       {isLoading && (
-        <div className="mb-4 flex items-center gap-3">
+        <div className="mb-4 flex shrink-0 items-center gap-3">
           <Loader2 className="animate-spin text-emerald" size={18} />
           <p className="text-text-primary">กำลังอ่านไฟล์ด้วย OCR...</p>
         </div>
       )}
 
-      {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+      {/* (29 ก.ย. 2026) บนสุดโชว์เฉพาะ error ตอนยังไม่มีผล OCR (OCR พัง) --
+          error ตอนบันทึกไม่สำเร็จย้ายไปโชว์เหนือปุ่มบันทึกด้านล่าง ให้อยู่ที่
+          เดียวกับที่ผู้ใช้กด (เดิมอยู่บนสุด ส่วนปุ่มอยู่ล่าง อาจมองไม่เห็น) */}
+      {error && !result && (
+        <div className="mb-4 shrink-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
         </div>
       )}
 
       {saveSuccess && (
-        <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+        <div className="mb-4 shrink-0 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
           ✅ บันทึกแล้ว{savedSummary ? `: ${savedSummary}` : ""}
         </div>
       )}
@@ -212,7 +218,8 @@ export default function SingleUploadFlow({
       {result && !saveSuccess && (
         <>
           {warnings.length > 0 ? (
-            <div className="mb-4 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-700">
+            // (29 ก.ย. 2026) lg: จำกัดความสูง กันแถบเตือนยาวๆ ดันกล่องรูป/ฟอร์มจนเตี้ย
+            <div className="mb-4 shrink-0 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-700 lg:max-h-28 lg:overflow-y-auto">
               <p>
                 ⚠️ ตรวจพบจุดที่ควรเช็ก {warnings.length} จุด (ตรวจพบว่าเป็น: {DOC_TYPE_LABELS[result.doc_type] ?? result.doc_type})
               </p>
@@ -225,16 +232,23 @@ export default function SingleUploadFlow({
               </ul>
             </div>
           ) : (
-            <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+            <div className="mb-4 shrink-0 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
               ✅ อ่านไฟล์สำเร็จ — ตรวจพบว่าเป็น: {DOC_TYPE_LABELS[result.doc_type] ?? result.doc_type}
             </div>
           )}
 
-          <div className="flex items-start gap-6">
-            <div className="w-2/5 rounded-xl border border-border-gray bg-card-bg p-4">
-              <p className="mb-2 font-medium text-text-primary">🖼️ รูปต้นฉบับ</p>
+          {/* (29 ก.ย. 2026) lg: แถวนี้กินความสูงที่เหลือ (flex-1 min-h-0) และ
+              ยืดสองกล่องให้สูงเท่ากัน (items-stretch) -- กล่องรูปย่อรูปให้เห็นทั้งใบ
+              กล่องฟอร์มเลื่อนในตัวเอง */}
+          <div className="flex items-start gap-6 lg:min-h-0 lg:flex-1 lg:items-stretch">
+            <div className="w-2/5 rounded-xl border border-border-gray bg-card-bg p-4 lg:flex lg:min-h-0 lg:flex-col">
+              <p className="mb-2 shrink-0 font-medium text-text-primary">🖼️ รูปต้นฉบับ</p>
               {/* eslint-disable-next-line @next/next/no-img-element -- blob URL ใช้ next/image ไม่ได้ */}
-              <img src={previewUrl} alt="สลิปต้นฉบับ" className="w-full rounded-lg" />
+              <img
+                src={previewUrl}
+                alt="สลิปต้นฉบับ"
+                className="w-full rounded-lg lg:min-h-0 lg:flex-1 lg:object-contain"
+              />
             </div>
 
             {/* sticky + max-h + overflow-y-auto (13 ก.ย. 2026): แก้จากรอบก่อน
@@ -247,8 +261,12 @@ export default function SingleUploadFlow({
                 กล่องฟอร์ม "ลอยค้าง" อยู่ตำแหน่งเดิมของจอเสมอ ไม่ว่ากล่องรูปจะ
                 ยาวแค่ไหน (หน้าเว็บยัง scroll ผ่านรูปได้ปกติ แต่กล่องฟอร์มไม่ขยับ
                 ตาม) พร้อม scrollbar อิสระของตัวเองเมื่อเนื้อหาฟอร์มเกิน
-                max-h ที่กำหนด */}
-            <div className="w-3/5 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto scrollbar-hover-only rounded-xl border border-border-gray bg-card-bg p-4">
+                max-h ที่กำหนด
+
+                (29 ก.ย. 2026) ข้างบนนี้ใช้กับจอเล็กกว่า lg เท่านั้นแล้ว -- จอ lg
+                ยกเลิก sticky/max-h (lg:static lg:max-h-none) เพราะแถวแม่กำหนด
+                ความสูงให้แล้ว */}
+            <div className="w-3/5 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto scrollbar-hover-only rounded-xl border border-border-gray bg-card-bg p-4 lg:static lg:max-h-none lg:min-h-0">
               <p className="mb-4 font-medium text-text-primary">📝 ตรวจสอบและแก้ไขข้อมูล</p>
 
               {/* ประเภทรายการ (13 ก.ย. 2026): วางบนสุดของฟอร์ม แยกจากฟิลด์ที่
@@ -305,23 +323,30 @@ export default function SingleUploadFlow({
                   />
                 </div>
               ))}
-
-              {validationErrors.length > 0 && (
-                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                  {validationErrors.map((msg) => (
-                    <div key={msg}>{msg}</div>
-                  ))}
-                </div>
-              )}
-
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="w-full rounded-lg bg-emerald px-4 py-2 text-white transition-colors hover:bg-emerald-hover disabled:opacity-50"
-              >
-                {isSaving ? "กำลังบันทึก..." : "บันทึกลงฐานข้อมูล"}
-              </button>
             </div>
+          </div>
+
+          {/* (29 ก.ย. 2026) ย้ายกล่อง error + ปุ่มบันทึกออกจากท้ายกล่องฟอร์มมาไว้
+              ล่างสุดเต็มความกว้าง เหมือน MultiUploadFlow -- จอ lg ติดล่างจอตลอด
+              (shrink-0) ไม่ต้องเลื่อนฟอร์มลงไปหาปุ่ม และ error ทั้งแบบ validation
+              กับบันทึกไม่สำเร็จอยู่เหนือปุ่มที่เดียวกัน */}
+          <div className="mt-6 shrink-0">
+            {(validationErrors.length > 0 || error) && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 lg:max-h-24 lg:overflow-y-auto">
+                {validationErrors.map((msg) => (
+                  <div key={msg}>{msg}</div>
+                ))}
+                {error && <div>{error}</div>}
+              </div>
+            )}
+
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="w-full rounded-lg bg-emerald px-4 py-2 text-white transition-colors hover:bg-emerald-hover disabled:opacity-50"
+            >
+              {isSaving ? "กำลังบันทึก..." : "บันทึกลงฐานข้อมูล"}
+            </button>
           </div>
         </>
       )}

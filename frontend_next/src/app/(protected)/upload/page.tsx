@@ -95,8 +95,11 @@ export default function UploadPage() {
   };
 
   return (
-    <div className="min-h-screen bg-page-bg p-8">
-      <h1 className="mb-6 text-xl font-semibold text-text-primary">อัปโหลดสลิป</h1>
+    // (29 ก.ย. 2026) จอ lg ขึ้นไป: หน้าสูงเท่า main พอดี (ไม่มี scrollbar ใหญ่)
+    // แล้วส่งพื้นที่ที่เหลือให้ flow ด้านล่าง ซึ่งให้กล่องรูป/ฟอร์มเลื่อนในตัวเอง
+    // จอเล็กกว่านั้นยังเลื่อนทั้งหน้าเหมือนเดิม
+    <div className="flex min-h-full flex-col bg-page-bg p-8 lg:h-full">
+      <h1 className="mb-6 shrink-0 text-xl font-semibold text-text-primary">อัปโหลดสลิป</h1>
 
       {!selectedFiles && (
         <>
@@ -130,7 +133,7 @@ export default function UploadPage() {
       )}
 
       {selectedFiles && (
-        <div className="mb-6">
+        <div className="mb-6 shrink-0">
           <div
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -169,12 +172,18 @@ export default function UploadPage() {
         </div>
       )}
 
-      {selectedFiles && selectedFiles.length === 1 && (
-        <SingleUploadFlow key={uploadKey} file={selectedFiles[0]} onQueueChange={setQueueCount} />
-      )}
-
-      {selectedFiles && selectedFiles.length > 1 && (
-        <MultiUploadFlow key={uploadKey} files={selectedFiles} onQueueChange={setQueueCount} />
+      {/* (29 ก.ย. 2026) กล่องนี้กินความสูงที่เหลือทั้งหมดบนจอ lg -- min-h-0
+          จำเป็น ไม่งั้นลูกของ flex จะไม่ยอมเตี้ยกว่าเนื้อหาตัวเอง แล้วข้างใน
+          จะเลื่อนในตัวเองไม่ได้ */}
+      {selectedFiles && (
+        <div className="lg:min-h-0 lg:flex-1">
+          {selectedFiles.length === 1 && (
+            <SingleUploadFlow key={uploadKey} file={selectedFiles[0]} onQueueChange={setQueueCount} />
+          )}
+          {selectedFiles.length > 1 && (
+            <MultiUploadFlow key={uploadKey} files={selectedFiles} onQueueChange={setQueueCount} />
+          )}
+        </div>
       )}
 
       <ConfirmDialog
