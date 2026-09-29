@@ -8,6 +8,7 @@ import { prepareDisplayFields, getWarningItems, getCurrentIssueFlags } from "@/l
 import type { UploadSlipResponse, ParsedFields } from "@/types/slip";
 import { Loader2, X } from "lucide-react";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import ImageLightbox from "@/components/ImageLightbox";
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   bank_slip: "สลิปโอนเงิน",
@@ -87,6 +88,9 @@ export default function MultiUploadFlow({
   // pendingCancel (18 ก.ย. 2026): ไฟล์ในคิวที่รอยืนยันยกเลิก (null = modal ปิด)
   // แทน window.confirm เดิม -- เก็บแค่ id กับชื่อ เพราะ modal ต้องใช้แค่นี้
   const [pendingCancel, setPendingCancel] = useState<{ id: number; name: string } | null>(null);
+  // (29 ก.ย. 2026) คลิกรูปสลิปแล้วขยายเต็มจอ -- ใช้ตัวเดียวทั้งคิว เพราะเปิดได้
+  // ทีละรูป และระหว่างเปิดอยู่สลับแท็บไม่ได้ (lightbox บังหน้าไว้)
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   // รายงานจำนวนไฟล์ที่เหลือในคิวให้หน้าแม่ (แถบ "เลือกไว้ N ไฟล์") -- (29 ก.ย.
   // 2026) ไม่ต้องรอ initialized แล้ว เพราะคิวพร้อมตั้งแต่ render แรก
   useEffect(() => {
@@ -358,13 +362,25 @@ export default function MultiUploadFlow({
                     กล่องฟอร์มเลื่อนในตัวเอง */}
                 <div className="flex items-start gap-6 lg:min-h-0 lg:flex-1 lg:items-stretch">
                   <div className="w-2/5 rounded-xl border border-border-gray bg-card-bg p-4 lg:flex lg:min-h-0 lg:flex-col">
-                    <p className="mb-2 shrink-0 font-medium text-text-primary">🖼️ รูปต้นฉบับ</p>
-                    {/* eslint-disable-next-line @next/next/no-img-element -- blob URL */}
-                    <img
-                      src={activeFile.previewUrl}
-                      alt="สลิปต้นฉบับ"
-                      className="w-full rounded-lg lg:min-h-0 lg:flex-1 lg:object-contain"
-                    />
+                    <p className="mb-2 shrink-0 font-medium text-text-primary">
+                      🖼️ รูปต้นฉบับ{" "}
+                      <span className="text-xs font-normal text-text-secondary">(คลิกรูปเพื่อขยาย)</span>
+                    </p>
+                    {/* (29 ก.ย. 2026) ห่อรูปด้วย <button> แบบเดียวกับ SingleUploadFlow --
+                        lg: ปุ่มรับหน้าที่ flex-1 min-h-0 แทนรูป รูปข้างในเต็มความสูงปุ่ม */}
+                    <button
+                      type="button"
+                      onClick={() => setIsLightboxOpen(true)}
+                      aria-label="ขยายรูปสลิป"
+                      className="block w-full cursor-zoom-in rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring lg:min-h-0 lg:flex-1"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element -- blob URL */}
+                      <img
+                        src={activeFile.previewUrl}
+                        alt="สลิปต้นฉบับ"
+                        className="w-full rounded-lg lg:h-full lg:object-contain"
+                      />
+                    </button>
                   </div>
 
                   {/* sticky + max-h + overflow-y-auto (13 ก.ย. 2026): แก้จากรอบ
@@ -376,9 +392,10 @@ export default function MultiUploadFlow({
                       (แท็บย้ายไปอยู่เหนือสุดของหน้าแล้ว 19 ก.ย. 2026) */}
                   {/* (29 ก.ย. 2026) lg: ยกเลิก sticky/max-h เพราะแถวแม่กำหนดความสูงให้แล้ว
                       จอเล็กกว่า lg ยังใช้ sticky แบบเดิม */}
-                  <div 
+                  <div
                     key={activeFile.id}
-                    className="w-3/5 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto scrollbar-hover-only rounded-xl border border-border-gray bg-card-bg p-4 lg:static lg:max-h-none lg:min-h-0">
+                    className="w-3/5 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto scrollbar-hover-only rounded-xl border border-border-gray bg-card-bg p-4 lg:static lg:max-h-none lg:min-h-0"
+                  >
                     <p className="mb-4 font-medium text-text-primary">📝 ตรวจสอบและแก้ไขข้อมูล</p>
 
                     {/* ประเภทรายการ (13 ก.ย. 2026): วางบนสุดของฟอร์ม แยกจาก
@@ -436,6 +453,13 @@ export default function MultiUploadFlow({
                     ))}
                   </div>
                 </div>
+
+                <ImageLightbox
+                  open={isLightboxOpen}
+                  src={activeFile.previewUrl}
+                  alt="สลิปต้นฉบับ (ขยาย)"
+                  onClose={() => setIsLightboxOpen(false)}
+                />
               </>
             );
           })()}

@@ -7,6 +7,7 @@ import { FIELD_LABELS, NUMERIC_FIELDS } from "@/lib/constants";
 import { prepareDisplayFields, getWarningItems, getCurrentIssueFlags } from "@/lib/slipFields";
 import type { UploadSlipResponse, ParsedFields } from "@/types/slip";
 import { Loader2 } from "lucide-react";
+import ImageLightbox from "@/components/ImageLightbox";
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   bank_slip: "สลิปโอนเงิน",
@@ -58,6 +59,8 @@ export default function SingleUploadFlow({
   // ไว้โชว์ใน banner (multi ใช้แค่จำนวนไฟล์ เพราะสรุปทีละใบจะยาวเกิน)
   const [savedSummary, setSavedSummary] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  // (29 ก.ย. 2026) คลิกรูปสลิปแล้วขยายเต็มจอ -- รูปในกล่องซ้ายเล็กลงหลังจัดหน้าพอดีจอ
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
 
   // เดิมทำงานตอน onChange ของ <input> -- ตอนนี้ทำตอน component นี้ mount
   // แทน เพราะพ่อแม่ (หน้ารวม) เลือกไฟล์มาให้ก่อนแล้วถึงสร้าง component นี้
@@ -242,13 +245,26 @@ export default function SingleUploadFlow({
               กล่องฟอร์มเลื่อนในตัวเอง */}
           <div className="flex items-start gap-6 lg:min-h-0 lg:flex-1 lg:items-stretch">
             <div className="w-2/5 rounded-xl border border-border-gray bg-card-bg p-4 lg:flex lg:min-h-0 lg:flex-col">
-              <p className="mb-2 shrink-0 font-medium text-text-primary">🖼️ รูปต้นฉบับ</p>
-              {/* eslint-disable-next-line @next/next/no-img-element -- blob URL ใช้ next/image ไม่ได้ */}
-              <img
-                src={previewUrl}
-                alt="สลิปต้นฉบับ"
-                className="w-full rounded-lg lg:min-h-0 lg:flex-1 lg:object-contain"
-              />
+              <p className="mb-2 shrink-0 font-medium text-text-primary">
+                🖼️ รูปต้นฉบับ{" "}
+                <span className="text-xs font-normal text-text-secondary">(คลิกรูปเพื่อขยาย)</span>
+              </p>
+              {/* (29 ก.ย. 2026) ห่อรูปด้วย <button> ให้กดเปิดรูปขยายได้ทั้งเมาส์และคีย์บอร์ด
+                  (Tab มาที่รูปแล้วกด Enter) -- lg: ปุ่มรับหน้าที่ flex-1 min-h-0 แทนรูป
+                  ส่วนรูปข้างในเต็มความสูงปุ่ม (h-full) แล้วย่อให้พอดี (object-contain) */}
+              <button
+                type="button"
+                onClick={() => setIsLightboxOpen(true)}
+                aria-label="ขยายรูปสลิป"
+                className="block w-full cursor-zoom-in rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring lg:min-h-0 lg:flex-1"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element -- blob URL ใช้ next/image ไม่ได้ */}
+                <img
+                  src={previewUrl}
+                  alt="สลิปต้นฉบับ"
+                  className="w-full rounded-lg lg:h-full lg:object-contain"
+                />
+              </button>
             </div>
 
             {/* sticky + max-h + overflow-y-auto (13 ก.ย. 2026): แก้จากรอบก่อน
@@ -348,6 +364,13 @@ export default function SingleUploadFlow({
               {isSaving ? "กำลังบันทึก..." : "บันทึกลงฐานข้อมูล"}
             </button>
           </div>
+
+          <ImageLightbox
+            open={isLightboxOpen}
+            src={previewUrl}
+            alt="สลิปต้นฉบับ (ขยาย)"
+            onClose={() => setIsLightboxOpen(false)}
+          />
         </>
       )}
     </div>
