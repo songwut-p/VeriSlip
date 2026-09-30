@@ -101,29 +101,15 @@ def validate_sql(raw_sql: str) -> str:
         if table_name != "slips":
             raise UnsafeSQLError(f"อ้างอิงตารางที่ไม่รู้จัก: {table_name}")
 
+    # ห้ามระบุ schema "main." นำหน้า เพราะเป็นทางเดียวที่จะข้าม TEMP table ชื่อ slips
+    # (ที่มีเฉพาะข้อมูลของ user นี้) ไปอ่านตารางจริงที่มีข้อมูลทุก user ได้ ดู run_user_scoped_query()
+    if re.search(r"\bmain\s*\.", lowered):
+        raise UnsafeSQLError("ห้ามระบุชื่อ schema (main.) ใน query")
+
     if "limit" not in lowered:
         body = f"{body} LIMIT {MAX_ROWS}"
 
     return body
-
-
-def scope_sql_to_user(safe_sql: str, user_id: str) -> str:
-    """
-    บังคับ user_id filter เข้าไปใน SQL ที่ LLM generate (ผ่าน validate_sql() มาแล้ว) ก่อนรันจริง
-
-    สำคัญ: ห้าม append "AND user_id = ?" ต่อท้ายเฉยๆ เพราะถ้า SQL มี GROUP BY/aggregate
-    (SUM/COUNT) การ filter หลัง aggregate จะสายเกินไป — ผลรวมจะยังปนของ user อื่นมาก่อนกรอง
-    วิธีที่ถูกคือ rewrite "FROM slips" ให้เป็น subquery ที่ filter user_id ไว้ตั้งแต่ต้น
-    ก่อนที่ WHERE/GROUP BY ชั้นนอกจะได้เห็นข้อมูลเลย ทำได้เพราะ validate_sql() การันตีแล้วว่า
-    query อ้างอิงได้แค่ตาราง slips เท่านั้น (ไม่มี join ตารางอื่นให้ regex นี้พลาดเป้า)
-    """
-    scoped_source = "FROM (SELECT * FROM slips WHERE user_id = :__user_id) AS slips"
-    scoped_sql, n = re.subn(r"\bfrom\s+slips\b", scoped_source, safe_sql, count=1, flags=re.IGNORECASE)
-    if n == 0:
-        # ไม่น่าเกิดขึ้นเพราะ validate_sql() บังคับว่าต้องมีคำว่า "slips" อยู่แล้ว
-        # แต่ถ้าเกิดขึ้นจริง (เช่น รูปแบบ FROM แปลกที่ regex ไม่ match) ปฏิเสธดีกว่าปล่อยผ่านแบบไม่กรอง
-        raise UnsafeSQLError("ไม่สามารถ scope SQL เข้ากับ user_id ได้อย่างปลอดภัย")
-    return scoped_sql
 
 
 def _progress_handler():
@@ -140,6 +126,38 @@ def run_readonly_query(sql: str, params=()):
         conn.execute("PRAGMA query_only = TRUE;")
         conn.set_progress_handler(_progress_handler, MAX_QUERY_STEPS)
         cur = conn.execute(sql, params)
+        rows = [dict(r) for r in cur.fetchall()]
+        return rows
+    finally:
+        conn.close()
+
+
+def run_user_scoped_query(sql: str, user_id: str):
+    """
+    รัน SQL ที่ LLM เขียน (ผ่าน validate_sql() แล้ว) โดยให้ "slips" ทุกจุดใน query เห็นเฉพาะข้อมูลของ user นี้
+
+    วิธี: สร้าง TEMP table ชื่อ slips ที่ copy มาเฉพาะแถวของ user นี้ SQLite หาชื่อตารางใน temp
+    ก่อน main เสมอ ดังนั้นทุกที่ที่ query อ้าง slips (subquery, JOIN, "FROM slips a, slips b")
+    จะเห็นแค่ข้อมูลของ user นี้ โดยไม่ต้องแก้ข้อความ SQL เลย ทางเดียวที่จะข้ามได้คือเขียน
+    "main.slips" ตรง ๆ ซึ่ง validate_sql() ปฏิเสธไว้แล้ว
+
+    แทน scope_sql_to_user() เดิม (30 ก.ย. 2026) ซึ่ง rewrite ด้วย regex แค่ "FROM slips" ตัวแรก
+    — ทดสอบจริง: "SELECT COUNT(*), (SELECT COUNT(*) FROM slips) FROM slips" ได้ 11 กับ 8
+    คือ FROM ตัวนอกไม่ถูกกรอง นับสลิปของทุก user (ข้อมูลรั่วข้ามบัญชี)
+
+    TEMP table อยู่แค่ใน connection นี้และหายไปเองตอนปิด ไม่แตะไฟล์ DB จริง (connection ยังเปิด
+    แบบ read-only) ต้องสร้างก่อนตั้ง query_only เพราะหลังจากนั้นเขียนอะไรไม่ได้แล้ว รวมถึง temp
+    """
+    uri = f"file:{DB_PATH}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True, timeout=5)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute(
+            "CREATE TEMP TABLE slips AS SELECT * FROM main.slips WHERE user_id = ?", (user_id,)
+        )
+        conn.execute("PRAGMA query_only = TRUE;")
+        conn.set_progress_handler(_progress_handler, MAX_QUERY_STEPS)
+        cur = conn.execute(sql)
         rows = [dict(r) for r in cur.fetchall()]
         return rows
     finally:
@@ -357,7 +375,7 @@ def answer_question(question: str, user_id: str, llm_call_fn=None, semantic_sear
 
     user_id: บังคับกรองทุก path ให้เห็นเฉพาะข้อมูลของ user นี้ — รวมถึง LLM-SQL fallback
              ซึ่ง LLM เองไม่รู้จัก user_id เลย (ไม่ได้อยู่ใน SCHEMA_PROMPT) เราเป็นคนกรองให้
-             หลัง SQL ผ่าน validator แล้วเสมอ ดู scope_sql_to_user()
+             ตอนรัน SQL เสมอ ดู run_user_scoped_query()
     llm_call_fn: ฟังก์ชัน (prompt: str) -> str ที่เรียก local model (ดู llm_sql.py)
     semantic_search_fn: ฟังก์ชัน (question: str, user_id: str) -> list[dict] ที่คืนผล semantic search
                          (ดู semantic_search.py's semantic_search())
@@ -382,16 +400,15 @@ def answer_question(question: str, user_id: str, llm_call_fn=None, semantic_sear
 
     try:
         safe_sql = validate_sql(raw_sql)
-        scoped_sql = scope_sql_to_user(safe_sql, user_id)
     except UnsafeSQLError as e:
         return {"mode": "rejected", "reason": str(e), "attempted_sql": raw_sql}
 
     try:
-        rows = run_readonly_query(scoped_sql, {"__user_id": user_id})
+        rows = run_user_scoped_query(safe_sql, user_id)
     except sqlite3.Error as e:
-        return {"mode": "sql_error", "sql": scoped_sql, "error": str(e)}
+        return {"mode": "sql_error", "sql": safe_sql, "error": str(e)}
 
-    return {"mode": "llm_sql", "sql": scoped_sql, "rows": rows}
+    return {"mode": "llm_sql", "sql": safe_sql, "rows": rows}
 
 
 # ----------------------------------------------------------------------------
