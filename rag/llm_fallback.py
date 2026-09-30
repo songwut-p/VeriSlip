@@ -17,6 +17,7 @@ QR payment ที่ไม่มี label "จาก"/"ถึง" ชัดเ�
 
 import json
 import re
+from rag.llm_sql import OLLAMA_KEEP_ALIVE  # ใช้ค่าเดียวกัน ไม่งั้น request จากไฟล์นี้จะรีเซ็ต keep_alive กลับเป็น 5m
 
 MODEL_NAME = "qwen3:8b"
 
@@ -139,6 +140,7 @@ def llm_extract_fields(ocr_text: str, missing_fields: list, model: str = MODEL_N
                                             # (0.1 ยังพอเห็นผลแกว่งได้ในเคสกำกวม เช่น merchant-recipient
                                             # ไม่มี label ชัดเจน - ดูปัญหาจริงที่เจอ 20 Aug 2026)
             think=False,  # ป้องกันบั๊กเดิม (qwen3 thinking-mode กินโควตา token จนตอบว่างเปล่า - เจอมาแล้วใน rag_qa.py/llm_sql.py)
+            keep_alive=OLLAMA_KEEP_ALIVE,
         )
         raw_text = response["message"]["content"]
     except Exception:

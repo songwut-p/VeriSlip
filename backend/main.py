@@ -3,6 +3,8 @@ load_dotenv()
 
 import shutil
 import tempfile
+import threading
+from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -24,9 +26,8 @@ from db.import_slips import (
     set_slip_image_path,
 )
 from db.audit_log import log_upload, log_delete  # เพิ่ม 26 Aug 2026 -- audit log
-from rag.build_index import index_row, delete_row
+from rag.llm_sql import call_ollama_for_sql, warm_up_model
 from rag.query_router import answer_question
-from rag.llm_sql import call_ollama_for_sql
 from rag.semantic_search import semantic_search
 from backend.dashboard_queries import (
     get_summary_stats,
@@ -38,7 +39,23 @@ from backend.dashboard_queries import (
     get_income_expense_summary,
 )
 from fastapi.middleware.cors import CORSMiddleware
-app = FastAPI(title="AI Document Assistant API")
+
+
+def _warm_up_in_background():
+    ok = warm_up_model()
+    print(f"[startup] Ollama warm-up: {'ready' if ok else 'skipped (Ollama not reachable)'}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # โหลดโมเดล LLM รอไว้เบื้องหลัง คำถาม /ask แรกจะไม่ต้องรอ cold start ~20-30 วินาที
+    # ใช้ daemon thread เพื่อไม่ให้ backend ค้างรอตอน start และไม่ค้างตอนปิด
+    # ถ้า Ollama ไม่ได้เปิด warm_up_model() คืน False เฉย ๆ backend ยังทำงานปกติ
+    threading.Thread(target=_warm_up_in_background, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="VeriSlip API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],

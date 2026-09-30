@@ -22,6 +22,13 @@ MODEL_NAME = "qwen3:8b"  # ใช้ตัวเดียวกับ Phase 1 �
 # ลองเปลี่ยน MODEL_NAME ตรงนี้ดูได้ — งาน text-to-SQL ใกล้เคียงงาน code มากกว่างาน chat ทั่วไป
 # แต่ยังไม่เคยทดสอบเทียบกันจริงสำหรับงานนี้โดยเฉพาะ
 
+# ให้ Ollama เก็บโมเดลค้างไว้ใน memory นานเท่านี้หลัง request ล่าสุด (ค่า default ของ Ollama = 5m)
+# ทุก request นับเวลาใหม่ ทุกที่ที่เรียกโมเดลตัวนี้ (รวม llm_fallback.py) ควรส่งค่าเดียวกัน
+# ไม่งั้น request ที่ไม่ส่ง keep_alive จะรีเซ็ตกลับเป็น 5m
+# 15m (30 ก.ย. 2026): พอสำหรับช่วงเดโม/ใช้งานต่อเนื่อง แต่ไม่ให้โมเดล (~6GB) ค้างนานเกินจำเป็น
+# ก่อนมีค่านี้: คำถามแรกหลังว่างเกิน 5 นาทีต้องรอโหลดโมเดลใหม่ ~20-30 วินาที
+OLLAMA_KEEP_ALIVE = "15m"
+
 SQL_SYSTEM_PROMPT = (
     "คุณคือระบบแปลงคำถามภาษาไทยเป็น SQLite SELECT query เท่านั้น "
     "ตอบกลับเป็น SQL query ดิบ 1 บรรทัดเท่านั้น "
@@ -41,6 +48,7 @@ def call_ollama_for_sql(prompt: str, model: str = MODEL_NAME) -> str:
             {"role": "user", "content": prompt},
         ],
         "stream": False,
+        "keep_alive": OLLAMA_KEEP_ALIVE,
         "think": False,  # qwen3 เปิด thinking mode มาโดยดีฟอลต์ - ถ้าไม่ปิดตรงนี้ num_predict
                           # จะถูกใช้ไปกับการ "คิด" จนหมดก่อนตอบจริง ทำให้ content ว่างเปล่า
                           # (ใส่ผ่าน system prompt เฉย ๆ ไม่พอ ต้องเป็น top-level param นี้)
@@ -65,3 +73,20 @@ def call_ollama_for_sql(prompt: str, model: str = MODEL_NAME) -> str:
         return f"[ERROR] เรียก Ollama ไม่สำเร็จ: {e}"
     except (KeyError, json.JSONDecodeError) as e:
         return f"[ERROR] อ่านผลลัพธ์จาก Ollama ไม่ได้: {e}"
+
+
+def warm_up_model(model: str = MODEL_NAME) -> bool:
+    """
+    โหลดโมเดลเข้า memory ไว้ล่วงหน้า (เรียกตอน backend เริ่ม) คำถามแรกจะได้ไม่ต้องรอ cold start
+
+    ส่ง messages ว่างไปที่ /api/chat -> Ollama แค่โหลดโมเดล ไม่ generate อะไร
+    คืน True ถ้าโหลดสำเร็จ, False ถ้า Ollama ไม่ได้เปิด/error — ห้าม raise
+    เพราะ backend ต้อง start ได้เสมอ ต่อให้ Ollama ยังไม่เปิดก็ตาม
+    """
+    payload = {"model": model, "messages": [], "keep_alive": OLLAMA_KEEP_ALIVE}
+    try:
+        resp = requests.post(OLLAMA_URL, json=payload, timeout=120)  # โหลดครั้งแรกอาจนาน
+        resp.raise_for_status()
+        return True
+    except requests.exceptions.RequestException:
+        return False
