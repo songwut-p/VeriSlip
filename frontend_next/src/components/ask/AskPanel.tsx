@@ -67,6 +67,62 @@ function formatDirectionTotals(row: Record<string, unknown>): string {
   return lines.join("\n");
 }
 
+// แปลงแถวผลลัพธ์ทั่วไป (pattern/LLM-SQL) เป็นข้อความอ่านง่าย -- คอลัมน์ที่ไม่รู้จักยังโชว์ key: value
+// ไม่ทิ้งข้อมูล ตัวเลขจัดรูปแบบในโค้ด ไม่ให้ LLM แต่ง
+const THAI_MONTHS = [
+  "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+  "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค.",
+];
+
+const COUNT_KEYS = new Set(["slip_count", "count"]);
+const AMOUNT_LABELS: Record<string, string> = {
+  total_amount: "ยอดรวม",
+  total: "ยอดรวม",
+  amount: "จำนวนเงิน",
+  avg_amount: "ยอดเฉลี่ย",
+  max_amount: "สูงสุด",
+  min_amount: "ต่ำสุด",
+};
+const COLUMN_LABELS: Record<string, string> = {
+  sender_name: "ผู้โอน",
+  recipient_name: "ผู้รับ",
+  bank_name: "ธนาคาร",
+  source_app: "แอป",
+  filename: "ไฟล์",
+  datetime_raw: "วันเวลา",
+  symbol: "หุ้น",
+};
+
+function formatMonthYear(month: unknown, year: unknown): string {
+  const m = Number(month);
+  // เดือนเป็น NULL ได้ถ้า OCR อ่านวันที่ไม่ออก -- ไม่เดา บอกตรง ๆ ว่าไม่ทราบ
+  const monthText = month != null && m >= 1 && m <= 12 ? THAI_MONTHS[m - 1] : "ไม่ทราบเดือน";
+  if (year == null) return monthText;
+  return `${monthText} ${Number(year) + 543}`; // DB เก็บปี ค.ศ. แสดงเป็น พ.ศ.
+}
+
+function formatRow(row: Record<string, unknown>): string {
+  const parts: string[] = [];
+  if ("datetime_month" in row) {
+    parts.push(formatMonthYear(row.datetime_month, row.datetime_year));
+  } else if ("datetime_year" in row) {
+    parts.push(row.datetime_year == null ? "ไม่ทราบปี" : `ปี ${Number(row.datetime_year) + 543}`);
+  }
+  for (const [key, value] of Object.entries(row)) {
+    if (key === "datetime_month" || key === "datetime_year") continue;
+    if (COUNT_KEYS.has(key)) {
+      parts.push(`${Number(value ?? 0)} ใบ`);
+    } else if (key in AMOUNT_LABELS) {
+      parts.push(`${AMOUNT_LABELS[key]} ${formatBaht(value)} บาท`);
+    } else {
+      const label = COLUMN_LABELS[key] ?? key;
+      const text = value == null || value === "" ? "ไม่ระบุ" : String(value);
+      parts.push(`${label}: ${text}`);
+    }
+  }
+  return parts.join(" · ");
+}
+
 function formatAskResult(result: AskResult): string {
   switch (result.mode) {
     case "pattern":
@@ -74,15 +130,12 @@ function formatAskResult(result: AskResult): string {
       const rows = result.rows ?? [];
       if (rows.length === 0) return "ไม่พบข้อมูลที่ตรงกับคำถามนี้";
       if (rows.length === 1 && "direction" in rows[0]) return formatDirectionTotals(rows[0]);
-      if (rows.length === 1) {
-        // แถวเดียว -- แปลงเป็น "key: value, key: value" สั้นๆ
-        const entries = Object.entries(rows[0])
-          .filter(([, v]) => v !== null)
-          .map(([k, v]) => `${k}: ${v}`);
-        return entries.join(", ") || "ไม่พบข้อมูลที่ตรงกับคำถามนี้";
-      }
-      // หลายแถว -- โชว์สูงสุด 5 แถวแรก กันข้อความยาวเกินไป
-      const shown = rows.slice(0, 5).map((r) => JSON.stringify(r)).join("\n");
+            if (rows.length === 1) return formatRow(rows[0]);
+      // หลายแถว -- ใส่เลขลำดับ โชว์สูงสุด 5 แถวแรก กันข้อความยาวเกินไป
+      const shown = rows
+        .slice(0, 5)
+        .map((r, i) => `${i + 1}. ${formatRow(r)}`)
+        .join("\n");
       const more = rows.length > 5 ? `\n(และอีก ${rows.length - 5} รายการ)` : "";
       return `${shown}${more}`;
     }
