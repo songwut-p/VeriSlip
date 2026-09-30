@@ -29,12 +29,51 @@ interface AskResult {
   closest_distance?: number | null;
 }
 
+// ผลจาก intent ยอดรวม (rag/query_router.py: _direction_totals) -- แยกรายรับ/รายจ่าย
+// ตัวเลขจัดรูปแบบในโค้ด ไม่ให้ LLM แต่ง
+const DIRECTION_LABEL: Record<"income" | "expense", string> = {
+  income: "รายรับ",
+  expense: "รายจ่าย",
+};
+
+function formatBaht(n: unknown): string {
+  return Number(n ?? 0).toLocaleString("th-TH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function directionLine(kind: "income" | "expense", total: unknown, count: unknown): string {
+  const c = Number(count ?? 0);
+  if (c === 0) return `ไม่พบรายการ${DIRECTION_LABEL[kind]}`;
+  return `${DIRECTION_LABEL[kind]}รวม ${formatBaht(total)} บาท (${c} รายการ)`;
+}
+
+function formatDirectionTotals(row: Record<string, unknown>): string {
+  const lines: string[] = [];
+  const d = row.direction;
+  if (d === "income" || d === "expense") {
+    lines.push(directionLine(d, row.total, row.count));
+  } else {
+    lines.push(directionLine("income", row.income_total, row.income_count));
+    lines.push(directionLine("expense", row.expense_total, row.expense_count));
+  }
+  const untyped = Number(row.untyped_count ?? 0);
+  if (untyped > 0) {
+    lines.push(
+      `หมายเหตุ: มีอีก ${untyped} สลิปที่ยังไม่ได้ระบุว่าเป็นรายรับหรือรายจ่าย จึงไม่ได้นับรวมในยอดนี้`
+    );
+  }
+  return lines.join("\n");
+}
+
 function formatAskResult(result: AskResult): string {
   switch (result.mode) {
     case "pattern":
     case "llm_sql": {
       const rows = result.rows ?? [];
       if (rows.length === 0) return "ไม่พบข้อมูลที่ตรงกับคำถามนี้";
+      if (rows.length === 1 && "direction" in rows[0]) return formatDirectionTotals(rows[0]);
       if (rows.length === 1) {
         // แถวเดียว -- แปลงเป็น "key: value, key: value" สั้นๆ
         const entries = Object.entries(rows[0])

@@ -199,6 +199,51 @@ def _resolve_month_year(question: str):
     return None
 
 
+# ทิศทางเงิน: user เลือก รายรับ/รายจ่าย เองตอนบันทึก (transaction_type = 'income'/'expense')
+# สลิปเก่า (ก่อน 13 ก.ย.) อาจยังไม่มีค่า -> นับแยกเป็น untyped_count ไม่เดาให้
+# เคสที่เจอจริง: "ยอดใช้จ่ายเดือนนี้เท่าไหร่" เคยได้ยอดรวมรายรับ+รายจ่ายปนกัน
+INCOME_KEYWORDS = ["รายรับ", "รับมา", "ได้รับ", "รับเงิน", "เงินเข้า", "โอนเข้า", "โอนมา"]
+EXPENSE_KEYWORDS = ["รายจ่าย", "จ่าย", "ใช้ไป", "โอนไป", "โอนออก", "เงินออก"]
+
+
+def _detect_directions(question: str) -> set:
+    directions = set()
+    if any(kw in question for kw in INCOME_KEYWORDS):
+        directions.add("income")
+    if any(kw in question for kw in EXPENSE_KEYWORDS):
+        directions.add("expense")
+    return directions
+
+
+def _direction_totals(where_sql: str, params: tuple, question: str):
+    """
+    รวมยอดแยกรายรับ/รายจ่ายใน query เดียว แล้วเลือกคืนตามทิศทางที่คำถามระบุ
+    where_sql มาจากโค้ดเราเท่านั้น (ไม่ใช่ input ผู้ใช้) ค่าทั้งหมดผ่าน params
+    """
+    sql = ("SELECT "
+           "COALESCE(SUM(CASE WHEN transaction_type = 'income' THEN amount END), 0) AS income_total, "
+           "COALESCE(SUM(CASE WHEN transaction_type = 'income' THEN 1 END), 0) AS income_count, "
+           "COALESCE(SUM(CASE WHEN transaction_type = 'expense' THEN amount END), 0) AS expense_total, "
+           "COALESCE(SUM(CASE WHEN transaction_type = 'expense' THEN 1 END), 0) AS expense_count, "
+           "COUNT(*) AS all_count "
+           f"FROM slips WHERE {where_sql}")
+    row = run_readonly_query(sql, params)[0]
+    untyped = row["all_count"] - row["income_count"] - row["expense_count"]
+
+    directions = _detect_directions(question)
+    if len(directions) == 1:
+        d = directions.pop()
+        result = {"direction": d, "total": row[f"{d}_total"], "count": row[f"{d}_count"],
+                  "untyped_count": untyped}
+    else:
+        # ถามทั้งสองทาง หรือไม่ระบุทิศทาง -> แยกให้ดูทั้งคู่ (รวมเงินเข้า+ออกเป็นเลขเดียวไม่มีความหมาย)
+        result = {"direction": "both",
+                  "income_total": row["income_total"], "income_count": row["income_count"],
+                  "expense_total": row["expense_total"], "expense_count": row["expense_count"],
+                  "untyped_count": untyped}
+    return sql, [result]
+
+
 def intent_total_by_month(question: str, user_id: str):
     if _has_datetime_qualifier(question) or _has_who_qualifier(question):
         return None
@@ -208,10 +253,9 @@ def intent_total_by_month(question: str, user_id: str):
     if not any(kw in question for kw in TOTAL_KEYWORDS):
         return None
     year, month = my
-    sql = ("SELECT SUM(amount) AS total, COUNT(*) AS count "
-           "FROM slips WHERE datetime_year = ? AND datetime_month = ? AND doc_type = 'bank_slip' AND user_id = ?")
-    rows = run_readonly_query(sql, (year, month, user_id))
-    return sql, rows
+    return _direction_totals(
+        "datetime_year = ? AND datetime_month = ? AND doc_type = 'bank_slip' AND user_id = ?",
+        (year, month, user_id), question)
 
 
 def intent_count_by_app(question: str, user_id: str):
@@ -260,9 +304,7 @@ def intent_total_all(question: str, user_id: str):
         return None
     if not any(kw in question for kw in TOTAL_KEYWORDS):
         return None
-    sql = "SELECT SUM(amount) AS total, COUNT(*) AS count FROM slips WHERE doc_type = 'bank_slip' AND user_id = ?"
-    rows = run_readonly_query(sql, (user_id,))
-    return sql, rows
+    return _direction_totals("doc_type = 'bank_slip' AND user_id = ?", (user_id,), question)
 
 
 # ลำดับสำคัญ: เฉพาะเจาะจงกว่าต้องมาก่อน (เช่น "รวมเดือนนี้" ต้องเจอ intent_total_by_month
