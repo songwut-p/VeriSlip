@@ -26,6 +26,7 @@ from db.import_slips import (
     set_slip_image_path,
 )
 from db.audit_log import log_upload, log_delete  # เพิ่ม 26 Aug 2026 -- audit log
+from rag.build_index import index_row, delete_row
 from rag.llm_sql import call_ollama_for_sql, warm_up_model
 from rag.query_router import answer_question
 from rag.semantic_search import semantic_search
@@ -176,7 +177,7 @@ def read_current_user(current_user: dict = Depends(get_current_user)):
 
 
 @app.post("/upload-slip")
-async def upload_slip(
+def upload_slip(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
 ):
@@ -219,7 +220,7 @@ async def upload_slip(
 
 
 @app.post("/save-slip")
-async def save_slip(
+def save_slip(
     req: SaveSlipRequest,
     request: Request,
     current_user: dict = Depends(get_current_user),
@@ -295,7 +296,7 @@ def download_slip_image(
 
 
 @app.post("/delete-slip")
-async def delete_slip_endpoint(
+def delete_slip_endpoint(
     req: DeleteSlipRequest,
     request: Request,
     current_user: dict = Depends(get_current_user),
@@ -326,7 +327,7 @@ async def delete_slip_endpoint(
 
 
 @app.post("/ask")
-async def ask(
+def ask(
     req: AskRequest,
     current_user: dict = Depends(get_current_user),
 ):
