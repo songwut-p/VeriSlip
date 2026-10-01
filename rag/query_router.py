@@ -27,11 +27,18 @@ Phase 2 - Step 3+4: Query layer (hybrid: pattern-matched intents -> semantic sea
     "no_match"           -> ไม่ตรง pattern ไหน และไม่ได้เสียบ fallback ใด ๆ มา
 """
 
+import logging
 import re
 import sqlite3
 from datetime import date
 
 from rag.prompts import SCHEMA_PROMPT
+
+logger = logging.getLogger(__name__)
+
+# ข้อความที่ส่งให้ client -- กลาง ๆ ไม่บอกกฎ validator หรือ error ของ DB
+GENERIC_REFUSAL = "ขอโทษครับ ไม่สามารถตอบคำถามนี้ได้ ลองถามใหม่อีกแบบนะครับ"
+GENERIC_ERROR = "เกิดข้อผิดพลาดระหว่างค้นหาข้อมูล ลองถามใหม่อีกแบบนะครับ"
 
 DB_PATH = "db/slips.db"
 
@@ -401,12 +408,17 @@ def answer_question(question: str, user_id: str, llm_call_fn=None, semantic_sear
     try:
         safe_sql = validate_sql(raw_sql)
     except UnsafeSQLError as e:
-        return {"mode": "rejected", "reason": str(e), "attempted_sql": raw_sql}
+        # เหตุผลจริง + SQL เก็บไว้ฝั่ง server เท่านั้น -- client เห็นแค่ข้อความกลาง ๆ
+        # (เดิมส่ง reason + attempted_sql กลับไปด้วย = บอกกฎ validator ให้ผู้โจมตีรู้, 1 ต.ค. 2026)
+        logger.warning("ask rejected user=%s reason=%s sql=%r", user_id, e, raw_sql)
+        return {"mode": "rejected", "message": GENERIC_REFUSAL}
 
     try:
         rows = run_user_scoped_query(safe_sql, user_id)
     except sqlite3.Error as e:
-        return {"mode": "sql_error", "sql": safe_sql, "error": str(e)}
+        # error ของ SQLite (เช่น no such column) บอกโครงสร้างตารางได้ -- log ไว้ฝั่ง server เท่านั้น
+        logger.warning("ask sql_error user=%s error=%s sql=%r", user_id, e, safe_sql)
+        return {"mode": "sql_error", "message": GENERIC_ERROR}
 
     return {"mode": "llm_sql", "sql": safe_sql, "rows": rows}
 

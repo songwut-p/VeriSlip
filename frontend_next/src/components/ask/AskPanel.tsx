@@ -24,8 +24,6 @@ interface AskResult {
   rows?: Record<string, unknown>[];
   matches?: { filename: string; document: string; distance: number }[];
   message?: string;
-  reason?: string;
-  error?: string;
   closest_distance?: number | null;
 }
 
@@ -158,9 +156,8 @@ function formatAskResult(result: AskResult): string {
     case "no_match":
       return result.message ?? "ไม่พบข้อมูลที่เกี่ยวข้อง";
     case "rejected":
-      return `ขอโทษครับ ยังตอบคำถามนี้ไม่ได้ (${result.reason ?? "SQL ไม่ผ่านการตรวจสอบ"})`;
     case "sql_error":
-      return `เกิดข้อผิดพลาดตอนค้นหาข้อมูล (${result.error ?? "unknown error"})`;
+      return result.message ?? "ขอโทษครับ ไม่สามารถตอบคำถามนี้ได้ ลองถามใหม่อีกแบบนะครับ";
     default:
       return "ไม่สามารถประมวลผลคำตอบได้";
   }
