@@ -101,6 +101,13 @@ function formatMonthYear(month: unknown, year: unknown): string {
   return `${monthText} ${Number(year) + 543}`; // DB เก็บปี ค.ศ. แสดงเป็น พ.ศ.
 }
 
+function formatTransactionType(value: unknown): string {
+  if (value === "income" || value === "expense") return DIRECTION_LABEL[value];
+  // NULL = สลิปเก่าที่ยังไม่ได้เลือกประเภท -- ไม่เดา บอกตรง ๆ
+  if (value == null || value === "") return "ไม่ระบุประเภท";
+  return String(value); // ค่าที่ไม่รู้จัก โชว์ตามจริง ไม่ทิ้ง
+}
+
 function formatRow(row: Record<string, unknown>): string {
   const parts: string[] = [];
   if ("datetime_month" in row) {
@@ -108,8 +115,11 @@ function formatRow(row: Record<string, unknown>): string {
   } else if ("datetime_year" in row) {
     parts.push(row.datetime_year == null ? "ไม่ทราบปี" : `ปี ${Number(row.datetime_year) + 543}`);
   }
+  if ("transaction_type" in row) {
+    parts.push(formatTransactionType(row.transaction_type));
+  }
   for (const [key, value] of Object.entries(row)) {
-    if (key === "datetime_month" || key === "datetime_year") continue;
+    if (key === "datetime_month" || key === "datetime_year" || key === "transaction_type") continue;
     if (COUNT_KEYS.has(key)) {
       parts.push(`${Number(value ?? 0)} ใบ`);
     } else if (key in AMOUNT_LABELS) {
