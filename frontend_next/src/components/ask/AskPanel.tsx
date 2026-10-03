@@ -154,6 +154,7 @@ function formatAskResult(result: AskResult): string {
     }
     case "no_confident_match":
     case "no_match":
+    case "not_understood":
       return result.message ?? "ไม่พบข้อมูลที่เกี่ยวข้อง";
     case "rejected":
     case "sql_error":

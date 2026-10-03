@@ -25,6 +25,7 @@ Phase 2 - Step 3+4: Query layer (hybrid: pattern-matched intents -> semantic sea
     "rejected"           -> LLM เขียน SQL ที่ไม่ผ่าน safety check
     "sql_error"          -> SQL ผ่าน validator แต่รันแล้ว error (syntax ผิด/คอลัมน์ไม่มีจริง)
     "no_match"           -> ไม่ตรง pattern ไหน และไม่ได้เสียบ fallback ใด ๆ มา
+    "not_understood"     -> คำถามไม่มีความหมาย (ไม่มีอักษรไทย/คำอังกฤษ) ตัดทิ้งก่อนถึง pattern/LLM
 """
 
 import logging
@@ -39,6 +40,20 @@ logger = logging.getLogger(__name__)
 # ข้อความที่ส่งให้ client -- กลาง ๆ ไม่บอกกฎ validator หรือ error ของ DB
 GENERIC_REFUSAL = "ขอโทษครับ ไม่สามารถตอบคำถามนี้ได้ ลองถามใหม่อีกแบบนะครับ"
 GENERIC_ERROR = "เกิดข้อผิดพลาดระหว่างค้นหาข้อมูล ลองถามใหม่อีกแบบนะครับ"
+NOT_UNDERSTOOD = 'ขอโทษครับ ไม่เข้าใจคำถามนี้ ลองถามเกี่ยวกับสลิปหรือยอดเงิน เช่น "ยอดใช้จ่ายเดือนนี้เท่าไหร่"'
+
+_THAI_CHAR = re.compile(r"[\u0E00-\u0E7F]")
+_LETTER_WORD = re.compile(r"\b[A-Za-z]{2,}\b")
+
+
+def _looks_like_question(question: str) -> bool:
+    """กรองคำถามที่ไม่มีความหมายก่อนถึง pattern/LLM (เช่น "1", "0x44454C455445")
+    ต้องมีอักษรไทย หรือคำอังกฤษที่เป็นตัวอักษรล้วนอย่างน้อย 2 ตัว"""
+    q = question.strip()
+    if len(q) < 2:
+        return False
+    return bool(_THAI_CHAR.search(q) or _LETTER_WORD.search(q))
+
 
 DB_PATH = "db/slips.db"
 
@@ -387,6 +402,10 @@ def answer_question(question: str, user_id: str, llm_call_fn=None, semantic_sear
     semantic_search_fn: ฟังก์ชัน (question: str, user_id: str) -> list[dict] ที่คืนผล semantic search
                          (ดู semantic_search.py's semantic_search())
     """
+    # คำถามไร้ความหมาย (เช่น "1", "0x44454C455445") ตอบว่าไม่เข้าใจทันที ไม่ต้องรอ LLM (1 ต.ค. 2026)
+    if not _looks_like_question(question):
+        return {"mode": "not_understood", "message": NOT_UNDERSTOOD}
+
     pattern_result = match_pattern(question, user_id)
     if pattern_result is not None:
         return pattern_result
