@@ -31,6 +31,7 @@ Phase 2 - Step 3+4: Query layer (hybrid: pattern-matched intents -> semantic sea
 import logging
 import re
 import sqlite3
+import time
 from datetime import date
 
 from rag.prompts import SCHEMA_PROMPT
@@ -77,7 +78,7 @@ FORBIDDEN_KEYWORDS = [
 ]
 
 MAX_ROWS = 200          # จำกัดจำนวนแถวที่ query ได้ กัน LLM ดึงเยอะเกินจำเป็น
-MAX_QUERY_STEPS = 5_000_000  # กัน query ที่หนัก/วน loop นานผิดปกติ (defense in depth บน DB เล็กๆ)
+MAX_QUERY_STEPS = 5_000_000  # SQLite เรียก progress handler ทุก N คำสั่ง VM (ความถี่ในการเช็ก ไม่ใช่เพดาน) — เพดานจริงคือ MAX_QUERY_SECONDS
 
 
 class UnsafeSQLError(Exception):
@@ -134,9 +135,23 @@ def validate_sql(raw_sql: str) -> str:
     return body
 
 
-def _progress_handler():
-    # sqlite3 progress handler: คืนค่า != 0 เพื่อยกเลิก query ถ้ารันนานผิดปกติ
-    return 0
+MAX_QUERY_SECONDS = 5  # เพดานเวลาของ SQL ที่ LLM เขียน (query ปกติบนข้อมูลของ user คนเดียวใช้ไม่ถึง 0.1 วิ)
+
+
+def _make_progress_handler(max_seconds: float = MAX_QUERY_SECONDS):
+    """
+    สร้าง progress handler ที่มีเส้นตายของตัวเอง SQLite จะเรียก handler ทุก MAX_QUERY_STEPS คำสั่ง VM
+    ถ้าคืนค่า != 0 SQLite จะยกเลิก query แล้วโยน sqlite3.OperationalError("interrupted")
+
+    ของเดิม (_progress_handler) คืน 0 ตลอด เลยไม่เคยตัด
+    dos_probe 7 ต.ค. 2026: self-join x9 รันได้ 11.8 วิโดยไม่มีอะไรหยุด
+    """
+    deadline = time.monotonic() + max_seconds
+
+    def handler():
+        return 1 if time.monotonic() > deadline else 0
+
+    return handler
 
 
 def run_readonly_query(sql: str, params=()):
@@ -146,7 +161,7 @@ def run_readonly_query(sql: str, params=()):
     conn.row_factory = sqlite3.Row
     try:
         conn.execute("PRAGMA query_only = TRUE;")
-        conn.set_progress_handler(_progress_handler, MAX_QUERY_STEPS)
+        conn.set_progress_handler(_make_progress_handler(), MAX_QUERY_STEPS)
         cur = conn.execute(sql, params)
         rows = [dict(r) for r in cur.fetchall()]
         return rows
@@ -178,7 +193,7 @@ def run_user_scoped_query(sql: str, user_id: str):
             "CREATE TEMP TABLE slips AS SELECT * FROM main.slips WHERE user_id = ?", (user_id,)
         )
         conn.execute("PRAGMA query_only = TRUE;")
-        conn.set_progress_handler(_progress_handler, MAX_QUERY_STEPS)
+        conn.set_progress_handler(_make_progress_handler(), MAX_QUERY_STEPS)
         cur = conn.execute(sql)
         rows = [dict(r) for r in cur.fetchall()]
         return rows
