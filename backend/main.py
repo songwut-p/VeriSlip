@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import time
 import shutil
 import tempfile
 import threading
@@ -16,6 +17,7 @@ from fastapi.responses import FileResponse
 from pytesseract import TesseractError
 from backend.schemas import AskRequest, SaveSlipRequest, DeleteSlipRequest
 from backend.file_storage import save_slip_image, get_slip_image_path, delete_slip_image, validate_image_bytes
+from backend.rate_limit import register_failure_and_get_delay, clear as clear_rate_limit
 from ocr.parse_slip import ocr_image_to_text, hybrid_parse_slip_text
 from ocr.document_classifier import classify_document
 from ocr.parse_stock import parse_stock_confirmation_text
@@ -159,12 +161,18 @@ def register(req: RegisterRequest):
 
 
 @app.post("/auth/login", response_model=TokenResponse)
-def login(req: LoginRequest):
-    """ตรวจสอบ username+password คืน JWT ถ้าถูกต้อง"""
+def login(req: LoginRequest, request: Request):
+    """ตรวจสอบ username+password คืน JWT ถ้าถูกต้อง
+    หน่วงเวลาถ้า IP นี้พิมพ์รหัสผิดซ้ำ ๆ (กัน brute-force -- ดู rate_limit.py)"""
+    ip = get_client_ip(request) or "unknown"
     user = authenticate_user(req.username, req.password)
     if user is None:
+        delay = register_failure_and_get_delay(ip)
+        if delay > 0:
+            time.sleep(delay)
         raise HTTPException(status_code=401, detail="ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
 
+    clear_rate_limit(ip)
     token = create_access_token(user["id"], user["username"])
     return TokenResponse(access_token=token, username=user["username"])
 
