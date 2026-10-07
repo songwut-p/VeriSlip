@@ -64,10 +64,10 @@ def get_slip_image_path(image_path: str | None, owner_user_id: str | None, reque
     """คืน Path ของไฟล์ ถ้า requesting_user_id ตรงกับ owner_user_id เท่านั้น
     เรียกใช้ตอน endpoint ดาวน์โหลด โดยดึง owner_user_id/image_path จาก DB
     (ห้ามเชื่อ query param ของฝั่ง client เพียงอย่างเดียว)"""
-    if owner_user_id is None:
-        raise HTTPException(status_code=404, detail="ไม่พบรายการนี้")
-    if requesting_user_id != owner_user_id:
-        raise HTTPException(status_code=403, detail="ไม่มีสิทธิ์เข้าถึงไฟล์นี้")
+        # ไม่มีอยู่ กับ ไม่ใช่ของเรา ต้องตอบเหมือนกันทุกตัวอักษร (กัน enumeration ว่า id ไหนมีอยู่จริง)
+    # ให้ตรงกับ POST /slips/{id}/image และ /delete-slip -- เดิมตอบ 403 vs 404 (ทดสอบ 7 ต.ค. 2026)
+    if owner_user_id is None or requesting_user_id != owner_user_id:
+        raise HTTPException(status_code=404, detail="ไม่พบรายการนี้ หรือไม่ใช่ของผู้ใช้นี้")
     if not image_path:
         raise HTTPException(status_code=404, detail="รายการนี้ยังไม่มีรูปแนบ")
     path = Path(image_path)
