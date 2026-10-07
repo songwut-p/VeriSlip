@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 load_dotenv()
-
+import os
 import time
 import shutil
 import tempfile
@@ -66,6 +66,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# 7 ต.ค. 2026: เชื่อ X-Forwarded-For เฉพาะตอนมี proxy ที่ไว้ใจอยู่ข้างหน้า (ngrok/Cloudflare)
+# ถ้ารับ request ตรง header นี้ client เขียนเองได้ -- ทดสอบแล้วใช้หลบ rate limit ได้
+# (ปลอม 10.0.0.1-8 → ไม่โดนหน่วงเลย) ค่าเริ่มต้นจึงปิดไว้ ตั้ง TRUST_PROXY_HEADERS=true
+# ใน .env เฉพาะตอนรันผ่าน proxy จริง
+TRUST_PROXY_HEADERS = os.environ.get("TRUST_PROXY_HEADERS", "false").lower() == "true"
 
 def get_client_ip(request: Request) -> str | None:
     """ดึง IP ต้นทางของ request สำหรับ audit log (2 ก.ย. 2026)
@@ -75,10 +80,9 @@ def get_client_ip(request: Request) -> str | None:
     IP ของตัว ngrok/proxy เอง ไม่ใช่ IP จริงของคนที่เรียกเข้ามา ส่วน
     X-Forwarded-For คือ header ที่ proxy ใส่ IP ต้นทางจริงไว้ให้
 
-    X-Forwarded-For อาจมีหลาย IP คั่นด้วย comma ถ้ามี proxy ซ้อนกันหลายชั้น
-    (เช่น "client_ip, proxy1_ip, proxy2_ip") -- เอาตัวแรกสุดเสมอ เพราะเป็น
-    IP ต้นทางจริงที่สุด (proxy แต่ละชั้นจะต่อ IP ของตัวเองท้าย header ไปเรื่อยๆ
-    ไม่ใช่ขึ้นต้น)
+    X-Forwarded-For อาจมีหลาย IP คั่นด้วย comma (proxy แต่ละชั้นต่อ IP ที่ตัวเองเห็นไว้ท้ายสุด)
+    เอาตัวขวาสุดเสมอ -- เป็นค่าที่ proxy ของเราเขียนเอง ส่วนตัวซ้ายสุด client เขียนมาเองได้
+    (แก้ 7 ต.ค. 2026: เดิมเอาตัวแรก ซึ่งปลอมได้)
 
     ถ้าไม่มี header นี้เลย (รันตรงๆ ไม่ผ่าน proxy เช่น localhost ตอน dev)
     fallback ไปใช้ request.client.host ตามปกติ (จะได้ 127.0.0.1 ตอน dev
@@ -89,8 +93,8 @@ def get_client_ip(request: Request) -> str | None:
     ช่วงเวลาไหน) เก็บไว้แค่เป็น indicator เบื้องต้นเวลาตรวจสอบย้อนหลัง
     ไม่ได้ตั้งใจทำเป็นระบบสืบสวนเต็มรูปแบบ"""
     forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
+    if TRUST_PROXY_HEADERS and forwarded_for:
+        return forwarded_for.split(",")[-1].strip()
     return request.client.host if request.client else None
 
 
