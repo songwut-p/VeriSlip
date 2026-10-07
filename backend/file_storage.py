@@ -16,6 +16,7 @@ from pathlib import Path
 
 from fastapi import UploadFile, HTTPException
 from PIL import Image, UnidentifiedImageError
+from PIL.Image import DecompressionBombError
 
 UPLOAD_ROOT = Path("uploads")
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
@@ -28,6 +29,24 @@ def _user_dir(user_id: str) -> Path:
     return d
 
 
+def validate_image_bytes(content: bytes, filename: str | None) -> None:
+    """เช็คว่าเป็นไฟล์รูปที่รับได้: นามสกุล + ขนาด + เปิดเป็นรูปได้จริง
+    ไม่ผ่าน → HTTPException 400 (ไม่ใช่ 500) ใช้ร่วมกันทั้ง /upload-slip และ
+    save_slip_image เพื่อให้กฎเดียวกันทุกทางเข้า (7 ต.ค. 2026)
+
+    DecompressionBombError: กันรูปที่พิกเซลมหาศาล (ไฟล์เล็กแต่ 20000x20000)
+    กิน RAM ตอน OCR/preprocess -- Pillow เตือนเองที่ ~89M px"""
+    suffix = Path(filename or "").suffix.lower()
+    if suffix not in ALLOWED_SUFFIXES:
+        raise HTTPException(status_code=400, detail=f"ไม่รองรับไฟล์นามสกุล {suffix}")
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="ไฟล์ใหญ่เกิน 10MB")
+    try:
+        Image.open(io.BytesIO(content)).verify()
+    except (UnidentifiedImageError, DecompressionBombError):
+        raise HTTPException(status_code=400, detail="ไฟล์นี้ไม่ใช่รูปภาพที่ถูกต้อง")
+
+
 async def save_slip_image(file: UploadFile, user_id: str) -> str:
     """
     เซฟไฟล์รูปที่ user อัปโหลด คืนค่า image_path (string) สำหรับเก็บลง DB
@@ -37,19 +56,9 @@ async def save_slip_image(file: UploadFile, user_id: str) -> str:
     traversal) -- ใช้ uuid4 gen ชื่อไฟล์บนดิสก์แทน ชื่อไฟล์เดิมถูกเก็บแยก
     ไว้ใน DB คอลัมน์ filename อยู่แล้ว (จาก /save-slip) สำหรับโชว์ผล
     """
-    suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in ALLOWED_SUFFIXES:
-        raise HTTPException(status_code=400, detail=f"ไม่รองรับไฟล์นามสกุล {suffix}")
-
     content = await file.read()
-    if len(content) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail="ไฟล์ใหญ่เกิน 10MB")
-
-    try:
-        img = Image.open(io.BytesIO(content))
-        img.verify()
-    except UnidentifiedImageError:
-        raise HTTPException(status_code=400, detail="ไฟล์นี้ไม่ใช่รูปภาพที่ถูกต้อง")
+    validate_image_bytes(content, file.filename)
+    suffix = Path(file.filename or "").suffix.lower()
 
     safe_name = f"{uuid.uuid4()}{suffix}"
     dest_path = _user_dir(user_id) / safe_name
@@ -64,8 +73,6 @@ def get_slip_image_path(image_path: str | None, owner_user_id: str | None, reque
     """คืน Path ของไฟล์ ถ้า requesting_user_id ตรงกับ owner_user_id เท่านั้น
     เรียกใช้ตอน endpoint ดาวน์โหลด โดยดึง owner_user_id/image_path จาก DB
     (ห้ามเชื่อ query param ของฝั่ง client เพียงอย่างเดียว)"""
-        # ไม่มีอยู่ กับ ไม่ใช่ของเรา ต้องตอบเหมือนกันทุกตัวอักษร (กัน enumeration ว่า id ไหนมีอยู่จริง)
-    # ให้ตรงกับ POST /slips/{id}/image และ /delete-slip -- เดิมตอบ 403 vs 404 (ทดสอบ 7 ต.ค. 2026)
     if owner_user_id is None or requesting_user_id != owner_user_id:
         raise HTTPException(status_code=404, detail="ไม่พบรายการนี้ หรือไม่ใช่ของผู้ใช้นี้")
     if not image_path:

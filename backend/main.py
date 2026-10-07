@@ -15,7 +15,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Req
 from fastapi.responses import FileResponse
 from pytesseract import TesseractError
 from backend.schemas import AskRequest, SaveSlipRequest, DeleteSlipRequest
-from backend.file_storage import save_slip_image, get_slip_image_path, delete_slip_image
+from backend.file_storage import save_slip_image, get_slip_image_path, delete_slip_image, validate_image_bytes
 from ocr.parse_slip import ocr_image_to_text, hybrid_parse_slip_text
 from ocr.document_classifier import classify_document
 from ocr.parse_stock import parse_stock_confirmation_text
@@ -184,9 +184,11 @@ def upload_slip(
     # ต้อง login ก่อนถึงเรียก OCR ได้ (กันคนนอกยิง endpoint นี้เล่นๆ เปลือง
     # compute โดยไม่มีบัญชี) -- แต่ตัว endpoint เองยังไม่ persist อะไรเลย
     # เหมือนเดิมทุกอย่าง (ยัง temp file แล้วลบทิ้งทันที ไม่เซฟถาวรที่นี่)
-    suffix = Path(file.filename).suffix
+    content = file.file.read()
+    validate_image_bytes(content, file.filename)
+    suffix = Path(file.filename or "").suffix.lower()
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        shutil.copyfileobj(file.file, tmp)
+        tmp.write(content)
         tmp_path = tmp.name
 
     try:
