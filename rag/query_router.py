@@ -136,7 +136,7 @@ def validate_sql(raw_sql: str) -> str:
 
 
 MAX_QUERY_SECONDS = 5  # เพดานเวลาของ SQL ที่ LLM เขียน (query ปกติบนข้อมูลของ user คนเดียวใช้ไม่ถึง 0.1 วิ)
-
+MAX_VALUE_BYTES = 1_000_000  # ค่าเดียว (string/blob) ใน SQL ของ LLM ห้ามใหญ่เกิน 1 MB — กัน randomblob/printf/group_concat กิน RAM
 
 def _make_progress_handler(max_seconds: float = MAX_QUERY_SECONDS):
     """
@@ -193,6 +193,7 @@ def run_user_scoped_query(sql: str, user_id: str):
             "CREATE TEMP TABLE slips AS SELECT * FROM main.slips WHERE user_id = ?", (user_id,)
         )
         conn.execute("PRAGMA query_only = TRUE;")
+        conn.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_VALUE_BYTES)
         conn.set_progress_handler(_make_progress_handler(), MAX_QUERY_STEPS)
         cur = conn.execute(sql)
         rows = [dict(r) for r in cur.fetchall()]
