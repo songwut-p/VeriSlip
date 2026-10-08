@@ -395,7 +395,16 @@ def match_pattern(question: str, user_id: str):
         result = intent_fn(question, user_id)
         if result is not None:
             sql, rows = result
-            return {"mode": "pattern", "intent": intent_fn.__name__, "sql": sql, "rows": rows}
+            # period (8 ต.ค. 2026): บอก frontend ว่าตัวเลขนับจากช่วงไหน -- การ์ดบน dashboard
+            # ใช้ช่วงที่เลือก (ค่าเริ่มต้น 12 เดือน) แต่ /ask นับทุกสลิป วางคู่กันแล้วเลขไม่ตรง
+            # ดูเหมือนบั๊ก มีแค่ intent_total_by_month ที่กรองเดือน ที่เหลือนับทั้งหมด
+            if intent_fn is intent_total_by_month:
+                year, month = _resolve_month_year(question)
+                period = {"scope": "month", "year": year, "month": month}
+            else:
+                period = {"scope": "all"}
+            return {"mode": "pattern", "intent": intent_fn.__name__, "sql": sql, "rows": rows,
+                    "period": period}
     return None
 
 

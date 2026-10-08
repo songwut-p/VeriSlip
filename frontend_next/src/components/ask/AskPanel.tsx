@@ -25,6 +25,7 @@ interface AskResult {
   matches?: { filename: string; document: string; distance: number }[];
   message?: string;
   closest_distance?: number | null;
+  period?: { scope: "all" } | { scope: "month"; year: number; month: number };
 }
 
 // ผลจาก intent ยอดรวม (rag/query_router.py: _direction_totals) -- แยกรายรับ/รายจ่าย
@@ -106,6 +107,15 @@ function formatTransactionType(value: unknown): string {
   return String(value); // ค่าที่ไม่รู้จัก โชว์ตามจริง ไม่ทิ้ง
 }
 
+
+// บอกช่วงเวลาท้ายคำตอบแบบ pattern (8 ต.ค. 2026) -- การ์ด dashboard ใช้ช่วงที่เลือก
+// แต่ /ask นับทุกสลิป วางคู่กันแล้วตัวเลขไม่ตรงจนดูเหมือนบั๊ก LLM-SQL ไม่มี period เลยข้าม
+function periodNote(period: AskResult["period"]): string {
+  if (!period) return "";
+  if (period.scope === "month") return `(เฉพาะ ${formatMonthYear(period.month, period.year)})`;
+  return "(นับจากทุกสลิปที่บันทึกไว้ ไม่ใช่ช่วงที่เลือกบนแดชบอร์ด)";
+}
+
 function formatRow(row: Record<string, unknown>): string {
   const parts: string[] = [];
   if ("datetime_month" in row) {
@@ -131,14 +141,14 @@ function formatRow(row: Record<string, unknown>): string {
   return parts.join(" · ");
 }
 
-function formatAskResult(result: AskResult): string {
+function formatAskBody(result: AskResult): string {
   switch (result.mode) {
     case "pattern":
     case "llm_sql": {
       const rows = result.rows ?? [];
       if (rows.length === 0) return "ไม่พบข้อมูลที่ตรงกับคำถามนี้";
       if (rows.length === 1 && "direction" in rows[0]) return formatDirectionTotals(rows[0]);
-            if (rows.length === 1) return formatRow(rows[0]);
+      if (rows.length === 1) return formatRow(rows[0]);
       // หลายแถว -- ใส่เลขลำดับ โชว์สูงสุด 5 แถวแรก กันข้อความยาวเกินไป
       const shown = rows
         .slice(0, 5)
@@ -162,6 +172,13 @@ function formatAskResult(result: AskResult): string {
     default:
       return "ไม่สามารถประมวลผลคำตอบได้";
   }
+}
+
+// ห่อ formatAskBody เพื่อต่อบรรทัดช่วงเวลาท้ายคำตอบ pattern ทีเดียว (ไม่ต้องแก้ return ทุกจุดข้างใน)
+function formatAskResult(result: AskResult): string {
+  const body = formatAskBody(result);
+  const note = result.mode === "pattern" ? periodNote(result.period) : "";
+  return note ? `${body}\n${note}` : body;
 }
 
 const FOCUSABLE_SELECTOR =
