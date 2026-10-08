@@ -346,7 +346,7 @@ def intent_min_transaction(question: str, user_id: str):
 def intent_count_total(question: str, user_id: str):
     if _has_datetime_qualifier(question) or _has_who_qualifier(question):
         return None
-    if not any(kw in question for kw in ["กี่รายการ", "กี่ใบ", "จำนวนทั้งหมด"]):
+    if not any(kw in question for kw in ["กี่รายการ", "กี่ใบ", "กี่รูป", "กี่อัน", "กี่ไฟล์", "กี่สลิป", "จำนวนทั้งหมด"]):
         return None
     sql = "SELECT COUNT(*) AS count FROM slips WHERE doc_type = 'bank_slip' AND user_id = ?"
     rows = run_readonly_query(sql, (user_id,))
