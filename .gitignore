@@ -19,3 +19,4 @@ audit_log_export.json
 *.bak_*
 regression_check_result.json
 security_results
+notes/
