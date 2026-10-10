@@ -142,7 +142,9 @@ export default function DashboardPage() {
         <>
           <SummaryCards summary={data.summary} incomeExpense={data.income_expense} />
 
-          <div className="mt-8">
+          {/* การ์ดกราฟ (10 ต.ค. 2026): เดิมมีแค่ mt-8 กราฟเลยลอยบนพื้นเทา ไม่เข้าชุดกับการ์ดอื่น
+              ใช้ class ชุดเดียวกับการ์ดค้นหา/รายการล่าสุดด้านล่าง */}
+          <div className="mt-8 rounded-xl border border-border-gray bg-card-bg p-6">
             <h2 className="mb-4 text-lg font-medium text-text-primary">ยอดเงินรวมต่อเดือน</h2>
             <MonthlyCountChart
               data={data.trend_by_month_bank_slip}
