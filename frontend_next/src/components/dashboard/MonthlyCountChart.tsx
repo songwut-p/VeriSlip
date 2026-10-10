@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import type { MonthlyTrend } from "@/types/dashboard-types";
 
 const THAI_MONTHS = [
@@ -8,17 +8,24 @@ const THAI_MONTHS = [
   "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค.",
 ];
 
+// แท่งคู่รายรับ/รายจ่าย (10 ต.ค. 2026): เดิมวาดแท่งเดียวจาก total_amount ที่รวมรายรับ+รายจ่าย
+// (ส.ค. 69 ของ Ronova = 31,250 = รายรับ 30,000 + รายจ่าย 1,250 อ่านแล้วเหมือนใช้เงิน 31,250)
+// สีเดียวกับการ์ดยอดสุทธิ: text-green-600 / text-red-500 ของ Tailwind v4 (recharts รับ class ไม่ได้)
+const INCOME_COLOR = "#00a63e";
+const EXPENSE_COLOR = "#fb2c36";
+
 // type ของ props ที่ recharts ส่งให้ tooltip/cursor (23 ก.ย. 2026) -- เดิมเป็น
 // any ทั้งคู่ ผิดกฎ @typescript-eslint/no-explicit-any ประกาศเองเฉพาะ field
 // ที่ใช้จริง ไม่ import type จาก recharts เพราะชื่อ/รูปร่างเปลี่ยนตามเวอร์ชัน
 interface ChartPoint {
   label: string;
-  amount: number;
+  income: number;
+  expense: number;
 }
 
 interface CustomTooltipProps {
   active?: boolean;
-  payload?: { value?: number }[];
+  payload?: { payload?: ChartPoint }[];
   label?: string;
 }
 
@@ -33,25 +40,24 @@ interface CustomCursorProps {
 function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
   if (!active || !payload || !payload.length) return null;
 
-  const amount = payload[0].value;
-  if (!amount || amount === 0) return null;
+  const point = payload[0].payload;
+  if (!point || (point.income === 0 && point.expense === 0)) return null;
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-sm">
       <p className="text-sm font-medium text-text-primary">{label}</p>
-      <p className="text-sm text-text-secondary">
-        ยอดเงินรวม : {Number(amount).toLocaleString("th-TH")} บาท
-      </p>
+      <p className="text-sm text-green-600">รายรับ : {point.income.toLocaleString("th-TH")} บาท</p>
+      <p className="text-sm text-red-500">รายจ่าย : {point.expense.toLocaleString("th-TH")} บาท</p>
     </div>
   );
 }
 
 function CustomCursor(props: CustomCursorProps) {
   const { x, y, width, height, payload } = props;
-  const amount = payload?.[0]?.payload?.amount;
-  if (!amount || amount === 0) return null;
+  const point = payload?.[0]?.payload;
+  if (!point || (point.income === 0 && point.expense === 0)) return null;
 
-    return <rect x={x} y={y} width={width} height={height} fill="#0F4C3A" fillOpacity={0.08} />;
+  return <rect x={x} y={y} width={width} height={height} fill="#0F4C3A" fillOpacity={0.08} />;
 }
 
 interface YearMonth {
@@ -157,19 +163,22 @@ export function MonthlyCountChart({ data, startDate, endDate }: MonthlyCountChar
     const baseLabel = THAI_MONTHS[month - 1];
     return {
       label: spansMultipleYears ? `${baseLabel} ${shortBuddhistYear(year)}` : baseLabel,
-      amount: match ? match.total_amount : 0,
+      income: match ? match.income_total : 0,
+      expense: match ? match.expense_total : 0,
     };
   });
 
   return (
-    <div style={{ width: "100%", height: 240 }}>
+    <div style={{ width: "100%", height: 260 }}>
       <ResponsiveContainer>
         <BarChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="label" />
           <YAxis tickFormatter={(value) => value.toLocaleString("th-TH")} />
           <Tooltip content={<CustomTooltip />} cursor={<CustomCursor />} />
-          <Bar dataKey="amount" fill="#0F4C3A" radius={[4, 4, 0, 0]} activeBar={false} />
+          <Legend wrapperStyle={{ fontSize: 14 }} />
+          <Bar dataKey="income" name="รายรับ" fill={INCOME_COLOR} radius={[4, 4, 0, 0]} activeBar={false} />
+          <Bar dataKey="expense" name="รายจ่าย" fill={EXPENSE_COLOR} radius={[4, 4, 0, 0]} activeBar={false} />
         </BarChart>
       </ResponsiveContainer>
     </div>

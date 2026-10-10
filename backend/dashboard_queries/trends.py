@@ -54,6 +54,12 @@ def get_trend_by_month(
     doc_type is required (not optional/'all') to avoid silently mixing THB
     bank transfers with THB stock purchase amounts in one trend line --
     pass doc_type='stock_confirmation' explicitly for a separate stock chart.
+
+    income_total / expense_total (10 ต.ค. 2026): the chart used total_amount,
+    which adds income and expense into one meaningless number (Aug 2026 for
+    Ronova = 31,250 = income 30,000 + expense 1,250). Split the same way as
+    get_income_expense_summary(): untyped rows and amount_issue rows go into
+    neither bucket. count/total_amount are kept unchanged.
     """
     date_clause, date_params = _date_filter_clause(start_date, end_date)
     with _connect() as conn:
@@ -61,7 +67,11 @@ def get_trend_by_month(
             f"""
             SELECT datetime_year AS year, datetime_month AS month,
                    COUNT(*) AS count,
-                   SUM(amount) AS total_amount
+                   SUM(amount) AS total_amount,
+                   COALESCE(SUM(CASE WHEN transaction_type = 'income' AND amount_issue IS NULL
+                                     THEN amount END), 0) AS income_total,
+                   COALESCE(SUM(CASE WHEN transaction_type = 'expense' AND amount_issue IS NULL
+                                     THEN amount END), 0) AS expense_total
             FROM slips
             WHERE doc_type = ? AND datetime_issue IS NULL AND user_id = ?
               AND datetime_year IS NOT NULL AND datetime_month IS NOT NULL{date_clause}

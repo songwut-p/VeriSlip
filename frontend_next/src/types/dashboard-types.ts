@@ -35,7 +35,10 @@ export interface MonthlyTrend {
   year: number;
   month: number;
   count: number;
-  total_amount: number;
+  total_amount: number; // รายรับ+รายจ่ายรวมกัน -- อย่าใช้วาดกราฟ (10 ต.ค. 2026)
+  // แยกตาม transaction_type แบบเดียวกับการ์ดยอดสุทธิ (สลิปไม่ระบุทิศทางไม่อยู่ในทั้งสองช่อง)
+  income_total: number;
+  expense_total: number;
 }
 
 export interface RecentSlip {
