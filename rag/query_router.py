@@ -325,22 +325,56 @@ def intent_count_by_app(question: str, user_id: str):
     return sql, rows
 
 
+# 11 ต.ค. 2026: count/max/min เดิมไม่ดูทิศทางเงิน -- พิสูจน์แล้ว (Ronova): "รายจ่ายสูงสุด" ได้สลิป
+# รายรับ 30,000, "เฉพาะรายรับกี่ใบ" ได้ 8 (ทั้งหมด) แทน 1
+# แถวผลลัพธ์ใช้ key "transaction_type" ไม่ใช่ "direction" -- AskPanel ส่งแถวที่มี key direction
+# ไป formatDirectionTotals (รูปแบบของยอดรวม) จะแสดงผิด ส่วน transaction_type มี formatRow รองรับอยู่แล้ว
+
+
+def _single_direction(question: str):
+    """คืน 'income'/'expense' ถ้าคำถามระบุทิศทางเดียว ไม่ระบุ/ถามทั้งสองทาง คืน None (ไม่กรอง)"""
+    directions = _detect_directions(question)
+    return directions.pop() if len(directions) == 1 else None
+
+
+def _untyped_count(user_id: str) -> int:
+    """จำนวนสลิปที่ยังไม่ระบุรายรับ/รายจ่าย -- นิยามเดียวกับ untyped ใน _direction_totals"""
+    sql = ("SELECT COUNT(*) AS n FROM slips WHERE doc_type = 'bank_slip' AND user_id = ? "
+           "AND (transaction_type IS NULL OR transaction_type NOT IN ('income', 'expense'))")
+    return run_readonly_query(sql, (user_id,))[0]["n"]
+
+
+def _extreme_transaction(question: str, user_id: str, order: str):
+    """สลิปยอดสูงสุด/ต่ำสุด order มาจากโค้ดเราเท่านั้น ('DESC'/'ASC') ไม่ใช่ input ผู้ใช้
+    amount IS NOT NULL: SQLite ถือว่า NULL น้อยสุด สลิปที่ OCR อ่านยอดไม่ออกจะกลายเป็น "ต่ำสุด" """
+    d = _single_direction(question)
+    where, params = "user_id = ? AND amount IS NOT NULL", [user_id]
+    if d:
+        where += " AND transaction_type = ?"
+        params.append(d)
+    sql = ("SELECT filename, amount, datetime_raw, recipient_name, transaction_type "
+           f"FROM slips WHERE {where} ORDER BY amount {order} LIMIT 1")
+    rows = run_readonly_query(sql, tuple(params))
+    if d:
+        untyped = _untyped_count(user_id)
+        if rows:
+            rows[0]["untyped_count"] = untyped
+        else:
+            # ไม่มีสลิปทิศทางนี้เลย -- บอก 0 ใบ + จำนวนที่ยังไม่ระบุ แทน "ไม่พบข้อมูล" เฉย ๆ (ข้อ ก)
+            rows = [{"transaction_type": d, "count": 0, "untyped_count": untyped}]
+    return sql, rows
+
+
 def intent_max_transaction(question: str, user_id: str):
     if not any(kw in question for kw in ["สูงสุด", "มากที่สุด", "แพงที่สุด"]):
         return None
-    sql = ("SELECT filename, amount, datetime_raw, recipient_name "
-           "FROM slips WHERE user_id = ? ORDER BY amount DESC LIMIT 1")
-    rows = run_readonly_query(sql, (user_id,))
-    return sql, rows
+    return _extreme_transaction(question, user_id, "DESC")
 
 
 def intent_min_transaction(question: str, user_id: str):
     if not any(kw in question for kw in ["ต่ำสุด", "น้อยที่สุด"]):
         return None
-    sql = ("SELECT filename, amount, datetime_raw, recipient_name "
-           "FROM slips WHERE user_id = ? ORDER BY amount ASC LIMIT 1")
-    rows = run_readonly_query(sql, (user_id,))
-    return sql, rows
+    return _extreme_transaction(question, user_id, "ASC")
 
 
 def intent_count_total(question: str, user_id: str):
@@ -348,8 +382,15 @@ def intent_count_total(question: str, user_id: str):
         return None
     if not any(kw in question for kw in ["กี่รายการ", "กี่ใบ", "กี่รูป", "กี่อัน", "กี่ไฟล์", "กี่สลิป", "จำนวนทั้งหมด"]):
         return None
-    sql = "SELECT COUNT(*) AS count FROM slips WHERE doc_type = 'bank_slip' AND user_id = ?"
-    rows = run_readonly_query(sql, (user_id,))
+    d = _single_direction(question)
+    if d is None:
+        sql = "SELECT COUNT(*) AS count FROM slips WHERE doc_type = 'bank_slip' AND user_id = ?"
+        rows = run_readonly_query(sql, (user_id,))
+        return sql, rows
+    sql = ("SELECT ? AS transaction_type, COUNT(*) AS count FROM slips "
+           "WHERE doc_type = 'bank_slip' AND user_id = ? AND transaction_type = ?")
+    rows = run_readonly_query(sql, (d, user_id, d))
+    rows[0]["untyped_count"] = _untyped_count(user_id)
     return sql, rows
 
 

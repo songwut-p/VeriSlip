@@ -48,6 +48,11 @@ function directionLine(kind: "income" | "expense", total: unknown, count: unknow
   return `${DIRECTION_LABEL[kind]}รวม ${formatBaht(total)} บาท (${c} รายการ)`;
 }
 
+// สลิปเก่า (ก่อน 13 ก.ย.) อาจยังไม่ระบุรายรับ/รายจ่าย -- ใช้ทั้งยอดรวม และ count/max/min (11 ต.ค. 2026)
+function untypedNote(n: number): string {
+  return `หมายเหตุ: มีอีก ${n} สลิปที่ยังไม่ได้ระบุว่าเป็นรายรับหรือรายจ่าย จึงไม่ได้นับรวมในคำตอบนี้`;
+}
+
 function formatDirectionTotals(row: Record<string, unknown>): string {
   const lines: string[] = [];
   const d = row.direction;
@@ -60,7 +65,7 @@ function formatDirectionTotals(row: Record<string, unknown>): string {
   const untyped = Number(row.untyped_count ?? 0);
   if (untyped > 0) {
     lines.push(
-      `หมายเหตุ: มีอีก ${untyped} สลิปที่ยังไม่ได้ระบุว่าเป็นรายรับหรือรายจ่าย จึงไม่ได้นับรวมในยอดนี้`
+      untypedNote(untyped)
     );
   }
   return lines.join("\n");
@@ -127,7 +132,7 @@ function formatRow(row: Record<string, unknown>): string {
     parts.push(formatTransactionType(row.transaction_type));
   }
   for (const [key, value] of Object.entries(row)) {
-    if (key === "datetime_month" || key === "datetime_year" || key === "transaction_type") continue;
+    if (key === "datetime_month" || key === "datetime_year" || key === "transaction_type" || key === "untyped_count") continue;
     if (COUNT_KEYS.has(key)) {
       parts.push(`${Number(value ?? 0)} ใบ`);
     } else if (key in AMOUNT_LABELS) {
@@ -138,7 +143,9 @@ function formatRow(row: Record<string, unknown>): string {
       parts.push(`${label}: ${text}`);
     }
   }
-  return parts.join(" · ");
+  const line = parts.join(" · ");
+  const untyped = Number(row.untyped_count ?? 0);
+  return untyped > 0 ? `${line}\n${untypedNote(untyped)}` : line;
 }
 
 function formatAskBody(result: AskResult): string {
