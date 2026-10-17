@@ -17,6 +17,7 @@ uploads/
 .env
 audit_log_export.json
 *.bak_*
+*.bak
 regression_check_result.json
 security_results
 notes/
