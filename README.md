@@ -68,21 +68,21 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    Q[Question] --> A{"Looks like a question?"}
-    A -- no --> N["Ask the user to rephrase"]
-    A -- yes --> B{"Has a filter word?<br/>(เกี่ยวกับ, ร้าน, ...)"}
-    B -- no --> C{"Matches a known pattern?"}
+    Q[Question] --> A{"Looks like<br/>a question?"}
+    A -- no --> N["Ask the user<br/>to rephrase"]
+    A -- yes --> B{"Has a<br/>filter word?<br/>(เกี่ยวกับ, ร้าน, ...)"}
+    B -- no --> C{"Matches a<br/>known pattern?"}
     C -- yes --> P["Run fixed SQL"]
     C -- no --> L
-    B -- yes --> S["Semantic search (Chroma)"]
-    S --> T{"Confident match?"}
-    T -- yes --> M["Return matching slips"]
+    B -- yes --> S["Semantic search<br/>(Chroma)"]
+    S --> T{"Confident<br/>match?"}
+    T -- yes --> M["Return<br/>matching slips"]
     T -- no --> L["LLM writes SQL"]
-    L --> V{"Passes validate_sql?"}
+    L --> V{"Passes<br/>validate_sql?"}
     V -- no --> R["Generic refusal"]
-    V -- yes --> X["Run in per-user sandbox"]
+    V -- yes --> X["Run in<br/>per-user sandbox"]
     X -- error or limit hit --> R
-    P --> F["Format rows as Thai text"]
+    P --> F["Format rows<br/>as Thai text"]
     X --> F
 ```
 
@@ -149,9 +149,9 @@ ollama pull qwen3:8b
 ### 2. Backend
 
 ```bash
-git clone https://github.com/<your-username>/VeriSlip.git
+git clone https://github.com/songwut-p/VeriSlip.git
 cd VeriSlip
-python -m venv venv
+python3 -m venv venv
 source venv/bin/activate
 
 # Install PyTorch first (pick one)
@@ -253,13 +253,13 @@ professional security audit. Remaining risks are listed in
 | Area | What I tried | Result |
 |---|---|---|
 | Text-to-SQL | About 15 SQL / prompt-injection questions (write, drop, read other tables) | All blocked by the validator and the read-only, per-user sandbox. The user sees a generic message; the real reason is logged on the server |
-| Data between users | `SELECT COUNT(*), (SELECT COUNT(*) FROM slips) FROM slips` | Before the fix, it returned 11 (all users) instead of 8. Fixed with a per-user temporary table (`1a1f329`) |
+| Data between users | `SELECT COUNT(*), (SELECT COUNT(*) FROM slips) FROM slips` | Before the fix, it returned 11 (all users) instead of 8. Fixed with a per-user temporary table (`ad1a20d`) |
 | Heavy queries | 9-way self-join, 500 MB `randomblob` | See below |
 | Login tokens (JWT) | 8 forged, expired or missing tokens (tampered payload, `alg=none`, wrong secret, ...) | All rejected with 401; a real token works |
-| Password guessing | 20 wrong passwords in a row | Before: every attempt answered instantly. Now: after 5 failures, each try waits 1 s longer (up to 4 s), per IP, without locking the account (`62ee824`) |
-| Faked client IP | Fake `X-Forwarded-For` header to dodge the login delay | Both the app and uvicorn trusted it. Now off by default (`1707196`) |
-| File upload | Fake `.jpg`, 60 MB file, 20000×20000 decompression bomb | Before: server error (500). Now: rejected with 400 and a clear message, no memory spike (`6a05e91`) |
-| Other users' slips | Read or delete another user's slip by id | "Not yours" used to return 403 and "doesn't exist" 404, which reveals valid ids. Now both return the same 404, and nothing is changed (`23e7276`) |
+| Password guessing | 20 wrong passwords in a row | Before: every attempt answered instantly. Now: after 5 failures, each try waits 1 s longer (up to 4 s), per IP, without locking the account (`b077cfa`) |
+| Faked client IP | Fake `X-Forwarded-For` header to dodge the login delay | Both the app and uvicorn trusted it. Now off by default (`72d2e73`) |
+| File upload | Fake `.jpg`, 60 MB file, 20000×20000 decompression bomb | Before: server error (500). Now: rejected with 400 and a clear message, no memory spike (`5018695`) |
+| Other users' slips | Read or delete another user's slip by id | "Not yours" used to return 403 and "doesn't exist" 404, which reveals valid ids. Now both return the same 404, and nothing is changed (`e2e994f`) |
 | Passwords | — | Hashed with bcrypt, random salt per account |
 
 ### Heavy LLM-written queries
@@ -268,7 +268,7 @@ The LLM could write SQL that is valid but very expensive. All of these
 passed `validate_sql`, because the validator checks what the SQL looks
 like, not how much work it does. Measured with `scripts/dos_probe.py`:
 
-| Query | Before | After 5 s time limit (`df536ee`) | After 1 MB value limit (`d5d928f`) |
+| Query | Before | After 5 s time limit (`b954ed9`) | After 1 MB value limit (`62e16de`) |
 |---|---|---|---|
 | 9-way self-join (134 million rows) | 11.8 s, full answer | stopped at 5.2 s | stopped at 5.1 s |
 | `randomblob` 500 MB | 2.7 s, 471 MB RAM | 2.5 s, 496 MB RAM (not stopped) | rejected in 0.002 s |
